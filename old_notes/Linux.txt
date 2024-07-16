@@ -1,0 +1,86 @@
+Debian ——》Ubuntu、Kali
+Fedora ——》CentOS、Red Hat
+openSUSE
+
+Linux 操作系统
+四个部分
+1.Linux kernel
+2.GNU工具
+3.GUI Desktop环境
+4.Application 应用
+
+GNU/Linux
+
+CLI  GUI
+
+GUI:
+1. X Windows
+2. KDE
+3.GNOME
+4.Unity
+
+/ linux根目录 最底层的
+
+/bin 二进制目录 GNU工具 ls等自带命令
+
+/cdrom
+
+/etc 系统配置文件目录
+
+/home 主目录，显示所有的用户目录
+
+/lib 库目录，依赖库
+
+/lost+found 断电后自动保存之类的
+
+/mnt 挂载目录，硬盘，U盘之类的
+挂载：外在设备和电脑进行连接
+
+/proc 虚拟文件系统、伪文件系统
+
+/run 运行目录
+
+/snap Ubuntu的产物 和沙盒有关系
+
+/tmp 临时目录（temp）
+
+/var 可变目录 log
+
+/boot 启动目录
+
+/dev 设备目录
+
+/media 媒体目录
+
+/opt 可选目录
+
+/sbin 系统二进制目录 GNU高级管理员使用的命令工具
+
+/srv 服务目录 本地服务
+
+/usr 用户二进制目录，普通用户使用的GNU目录
+
+/usr/bin 用户安装的一些软件
+
+FHS
+文件系统层级标准
+
+ls -l fhs-2.3_*.pdf
+ls -l fhs-2.3_copy_?.pdf
+
+文件扩展匹配符
+?代表一个符号
+*代表多个符号
+
+限定范围元字符通配符
+[]
+[!]
+
+touch 创建一个新的文件或更新已有文件的时间  经过尝试发现创建.txt文件可以创建.pdf文件会出bug 不行
+cp  即可以复制文件又可以复制文件夹，复制的目标必须存在否则将会出现错误
+cp 你想复制的文件 你想复制到的位置或文件(没有的会创建)
+cp 源文件 目标文件 （如果目标文件存在则会覆盖）（没有任何的提示）
+cp -i 源文件 目标文件	在覆盖之前先询问 文件覆盖后时间会更新
+cp -r 源文件夹 目标文件夹	连同文件夹一起全部复制到目标文件夹中
+cp 源文件夹/* 目标文件夹 	 将源文件夹下的全部文件复制到目标文件夹中
+cp 文件或相对路径或绝对路径 文件或相对路径或绝对路径 

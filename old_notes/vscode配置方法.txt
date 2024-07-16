@@ -1,0 +1,71 @@
+vs code配置方式：
+1.配置默认生成任务
+2.修改${file}为${workspaceFolder}\\*.cpp，以编译工作空间中所有文件（也可以用${workspaceFolder}\\ProgramName.exe）修改${fileDirname}\\${fileBasenameNoExtension}.exe强制修改输出文件名
+3.运行->添加配置...选择C++（GDB/LLDB）选择g++.exe构建并调试活动文件
+在调试程序构建完成后，修改program的路径为tasks.json里的${fileDirname}\\${fileBasenameNoExtension}.exe，其次修改miDebuggerPath为C:\\MinGW\\bin\\gdb.exe
+vscode默认调试控制台有不能输入的bug，为了使得我们能够输入，在externalConsole一栏改成true，使得我们的文件能够外部执行
+4.运行构建（编译）程序，运行调试程序
+注意：调试的时候一定要选中正确的文件，调试程序才能找到对应的exe文件
+（都是用Ctrl+Shift+B来编译运行）
+然后开启一个终端（powershell）输入.\文件名.exe即可执行
+5.在终端输入dir可以查看文件夹内的文件情况
+tasks.json的代码如下：
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "shell",
+			"label": "C/C++: g++.exe build active file",
+			"command": "C:\\MinGW\\bin\\g++.exe",
+			"args": [
+				"-g",
+				"${workspaceFolder}\\*.cpp",
+				"-o",
+				"${fileDirname}\\${fileBasenameNoExtension}.exe"
+			],
+			"options": {
+				"cwd": "C:\\MinGW\\bin"
+			},
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		}
+	]
+}
+launch.json的代码如下：
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "(gdb) 启动",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${fileDirname}\\${fileBasenameNoExtension}.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "gdb",
+            "miDebuggerPath": "C:\\MinGW\\bin\\gdb.exe",
+            "setupCommands": [
+                {
+                    "description": "为 gdb 启用整齐打印",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}
+alt+shift+上下键，用于复制某行代码
+alt+shift+k，用于删除某行代码
+alt+shitf+i，批量选择多行的最后一位
+The task provider for "C/C++" tasks unexpectedly provided a task of type "sh

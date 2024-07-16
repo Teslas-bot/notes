@@ -1,0 +1,87 @@
+auto_increment  自动增长
+
+primary key	主键
+
+comment ''	注释
+
+not null		不能为空
+
+default''		默认值
+
+）engine=innodb	设置数据库引擎
+
+CRUD
+
+create	drop		alter(add)(drop)(modify)(change)	show
+insert	delete(truncate)	update				select
+
+alter table `tablename` convert to character set utf8;
+
+foreign key (stuId) references stu(Id)	数据类型必须相同
+
+保证字段完整性				域完整性
+选择合适的数据类型,  null, not null,  default	字段完整性
+可能需要对外部的引用			引用完整性
+自定义的约束				自定义完整性
+
+外键 删除置空 更新级联
+create table canteen(
+......
+stuID int(4),
+foreign key (stuID) references stu(stuId) on delete set null on update cascade
+);engine=innodb, charset=utf8
+
+总结一下不外乎几条：
+1.外键字段和和被绑定字段的数据类型，数据精度，字符集和排序规则要一致；
+2.所有tables必须是InnoDB型，它们不能是临时表.因为在MySQL中只有InnoDB类型的表才支持外键（两张表的存储引擎一致）。
+3.外键字段不能为该表的主键；
+4.外键字段参考字段必须为参考表的主键（或唯一键）。
+
+模糊查询
+select * from student where name like '张%';
+select * from student where name like '张_';
+
+设置查询顺序
+order by 字段名 asc(升序) desc（降序）
+
+依条件查询(聚合函数)
+select avg(age) as '年龄', gender as '性别' from info group by gender;
+select 聚合函数, 分组依据字段 from 表名 group by 分组依据字段 (可以添加升序降序asc desc);
+select group_concat(name), gender from student group by gender; (聚合显示)
+select avg(age) as 'age', address as 'address' from info group by address having age > 24; 
+(在分组后的虚拟的表中查询，不使用where而是使用having) (起别名可以使查询结果的虚拟表更加清晰）
+select * from limit 0, 2;
+select * from student order by age desc limit 0,3;
+
+select address from student;
+select all address from student;
+select distinct address from student;
+
+select name, phone from student union select name phone from teachrer;
+
+select name, score from student inner join score on student.id=score.stuid;
+using();(自然连接)
+
+
+
+
+如果要使用是或否，一定要使用is关键字，数据类型ungigned tinyint(1)
+如果字段是非负数，比如年龄等 则必须是unsigned
+数据库，表名，字段名，必须使用小写字母，不能以数字开头，下划线中间不能只出现数字，如果出现分隔单词一定用下划线隔开
+表名，字段名不能是复数，不能使用MySQL关键字
+主键索引名'pk_xxx'
+唯一键索引名'uk_xxx'
+普通索引名'idx_xxx'
+凡是是小数的，禁止使用float和double，必须使用decimal
+如果字符串很小，使用char，不使用varchar
+如果长度超过5000，使用text
+表中至少有3个字段
+id,		create_time	update_time
+bigint不绑定比自增	datatime		datatime
+常常查询的可以考虑冗余，唯一键不冗余
+单表行数超过500万行和超过2个G，分表
+注意宽度
+高并发集群的项目中，不要使用外键和级联，一切在应用层解决
+实际开发过程中，不玉米须使用存储过程，因为很难调试，很难扩展（缺乏移植性）
+在增删改的时候先查
+子查询中的in的操作，能避免就避免，utf8作为国际项目编码
