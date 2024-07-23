@@ -1033,8 +1033,10 @@ All signed character values range from -128 to 127. All unsigned character value
 
 int main()
 {
-    // 布尔类型，1位，用于表示事无的真假，依赖于整数的0和1
-    
+    // 布尔类型，1位，用于表示事件的真假，依赖于整数的0和1
+    // 如果误操作使用整型来判断真假
+    // 则0代表false
+    // 非0代表true
     // 判读游戏胜利的布尔变量
     bool is_game_won = true;
     // 判断游戏失败的布尔变量
@@ -1042,7 +1044,7 @@ int main()
 }
 ```
 
-### 复数和虚数
+## 复数和虚数
 
 详见`<complex.h>`和`<imaginary.h>`两个头文件。
 
@@ -1061,6 +1063,10 @@ uint16_t smallNumber_1 = (uint16_t)mediumNumber;
 类型转换是否出错取决于是否超范围。
 
 显式类型转换最显著的优点：极大增强了代码的可读性。
+
+实际写代码的过程中，类型转换的内容非常多，如果在写代码的过程中出现问题，可参考微软文档。
+
+Microsoft C Reference: [赋值转换 | Microsoft Learn](https://learn.microsoft.com/zh-cn/cpp/c-language/assignment-conversions?view=msvc-170)
 
 # 常量
 
@@ -1393,19 +1399,1322 @@ int main()
 
 参考博客：[C语言中的位运算：位操作符、位掩码与位字段在实际编程中的应用（一）_使用位运算处理替换位字段-CSDN博客](https://blog.csdn.net/weixin_56154577/article/details/137274524#:~:text=按位逻辑运算符： 1 运算规则 ：对两个操作数的对应二进制位进行逻辑或运算，只要有一个位为1，结果位即为1，只有当两个位都为0时，结果位才为0。 2 示例 ：同样假设 A,：用于设置特定标志位。 例如，要在一个包含多个状态标志的整数变量中置位某个标志，可通过 flags |%3D MASK ，其中 MASK 是对应位为1的掩码。)
 
+## 计算的优先级和顺序
 
-
-
+Microsoft C Reference: [计算的优先级和顺序 | Microsoft Learn](https://learn.microsoft.com/zh-cn/cpp/c-language/precedence-and-order-of-evaluation?view=msvc-170)
 
 
 
 # 表达式(expression)和语句(statement)
 
+Question: **What is the difference between expression and statement in functional programming?**
+
+Answer: 
+
+These concepts aren’t specific to functional programming. They apply to imperative programming as well. **A statement is a piece of code that does something. An expression is a piece of code that has a value (and a type in statically-typed languages).** The reason you might hear more about them in functional programming is that in functional languages, pretty much everything that isn’t a declaration is an expression.
+
+Statements in general are either declarations or things that are executed for their side effects. For example (using a C-family-ish syntax):
+
+```
+int theAnswer = 42; 
+println("Printing is a side effect."); 
+```
+
+The first one is a declaration. The second one is a statement that is executed for the side-effect that it creates. Here’s an example of using `if` as a statement.
+
+```
+if (someBooleanValue) { 
+  theAnswer++; 
+} else { 
+  theAnswer--; 
+} 
+```
+
+This `if` statement doesn’t give back a value. We execute it in order to mutate a variable, which is a side effect. In many languages descended from C there is a special operator, the ternary operator, `?:`, that is used to create `if` expressions. Compare this to a more functional language, like Scala, where `if` is an expression. That means you can type something like the following.
+
+```
+val theAnswer = if (someBooleanValue) 43 else 41 
+```
+
+Note that anything that makes sense to put on the right side of an assignment/declaration needs to be an expression because you are using the value of it.
+
+You actually use expressions all the time in every programming language. For example, consider the following:
+
+```
+(5 + x) * y 
+```
+
+This is an expression. You’d normally put it someplace in your code that needs that value. The thing I want to point out is that it is a compound expression built from smaller expressions. Literals, like `5`, and variables, like `x` and `y`, are simple expressions. Any sequence of tokens that has a value in the language is an expression.
+
+In functional languages, control structures are also generally expressions. In imperative languages they generally aren’t, they are just statements that execute and do something, but don’t give back a value.
+
+Reference from: https://www.quora.com/What-is-the-difference-between-expression-and-statement-in-functional-programming
+
+Answered by: Mark lewis
+
+Tips: Please note the difference between imperative programming and functional programming.
+
+# 分支与跳转
+
+若有完美，定是谎言。不要想使用程序去满足所有的可能。分支不可能满足全面满足所有可能。
+
+## Example of if-else
+
+**Tips: 在进行逻辑判断时，尽量进行逻辑简化后再写代码。**
+
+### Using logical operator replaces if-else（利用逻辑运算符的短路行为）
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <stdbool.h>
+
+int main()
+{
+    // 天气晴朗和场地可用的情况下，可以举办高尔夫球活动
+
+    // 天气是否晴朗的布尔值
+    bool is_weather_sunny;
+
+    // 场地是否可用的布尔值
+    bool is_venue_available;
+
+    // 假设天气不晴朗
+    is_weather_sunny = false;
+
+    // 假设场地不可用
+    is_venue_available = false;
+
+    // // 1. 使用if-else嵌套
+    // // 逻辑容易混乱
+    // // 后期维护难度大
+    // // 若增加判断条件则需要增加if-else嵌套层数
+    // if (is_weather_sunny)
+    // {
+    //     printf("The weather is sunny.\n");
+    //     if (is_venue_available)
+    //     {
+    //         printf("The venue is available.\n");
+    //     }
+    //     else
+    //     {
+    //         printf("The venue is unavailable.\n");
+    //     }
+    // }
+    // else
+    // {
+    //     printf("The weather is not sunny.\n");
+    // }
+
+    // 2. 扩展
+    // Using logical operators replaces if-else
+    // 使用逻辑AND && 来处理if-else的短路行为
+    // 类似的
+    // 也可以使用逻辑OR || 来处理if-else的短路行为
+    if (is_weather_sunny && is_venue_available)
+    {
+        printf("The game will be played on time.\n");
+    }
+    else
+    {
+        printf("The game will be delayed.\n");
+
+        if (!is_weather_sunny)
+        {
+            printf("Reason: the weather is not sunny.\n");
+        }
+
+        if (!is_venue_available)
+        {
+            printf("Reason: the venue is not available.\n");
+        }
+    }
+}
+```
+
+### simulate a game logic
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <stdbool.h>
+
+int main()
+{
+    /*
+        玩家可以选择进入不同的房间，每一个房间都有不同的进入条件。
+
+        房间A: 玩家需要有VIP身份
+        房间B: 玩家需要至少有10个金币，或者是一个特殊道具
+        房间C: 玩家需要有VIP身份，并且金币数量不得少于20
+        房间D: 玩家需要有VIP或者特殊道具，并且数量不少于5
+    */
+    // 玩家属性（在真实程序中可能来自于用户输入或者是游戏逻辑）
+    bool is_vip = true;
+    bool has_special_item = true;
+    uint32_t coins_num = 15;
+
+    // 检查房间A的条件
+    // 房间A: 玩家需要有VIP身份
+    if (is_vip)
+    {
+        printf("You have access to Room A.\n");
+    }
+    else
+    {
+        printf("You don't have access to Room A.\n");
+    }
+
+    // 检查房间B的条件
+    // 房间B: 玩家需要至少有10个金币，或者是一个特殊道具
+    if (coins_num >= 10 || has_special_item)
+    {
+        printf("You have access to Room B.\n");
+    }
+    else
+    {
+        puts("You don't have access to Room B.\n");
+    }
+
+    // 检查房间C的条件
+    // 房间C: 玩家需要有VIP身份，并且金币数量不得少于20
+    if (is_vip && coins_num >= 20)
+    {
+        printf("You have access to Room C.\n");
+    }
+    else
+    {
+        printf("You don't have access to Room C.\n");
+    }
+
+    // 检查房间D的条件
+    // 房间D: 玩家需要有VIP或者特殊道具，并且数量不少于5
+    if ((is_vip || has_special_item) && coins_num >= 5)
+    {
+        printf("You have access to Room D.\n");
+    }
+    else
+    {
+        printf("You don't have access to Room D.\n");
+    }
+}
+```
+
+### access right
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+// 为了区分不同的职位，可以定义一个枚举类型
+typedef enum {
+    Manager,    // 0
+    Employee,   // 1
+    Intern      // 2
+} Role;
+
+// Equivalent to
+// #define Manager 0
+// #define Employee 1
+// #define Intern 2
+
+int main()
+{
+    /*
+        公司内部权限问题。
+        员工可以访问不同的系统资源，这取决于他们的职位和完成数量。权限规则如下：
+
+        1. Manaager 总是可以访问所有资源
+        2. Employee 如果完成5个以上的任务以后，则可以访问资源
+        3. Intern (实习生) 如果完成10个以上的任务以后，必须经过经理同意才可以访问
+    */
+    // 身份属性
+    Role role = Intern;
+
+    uint8_t completed_tasks = 7;
+    
+    bool is_manager_approved = false;
+
+    // Plan A
+    // if-else
+    // 既使用了else if
+    // 又嵌套了if
+    // 这样不好
+    if (role == Manager)
+    {
+        puts("You have access right. You are manager.");
+    }
+    else if (role == Employee && completed_tasks > 5)
+    {
+        puts("You have access right. You are Employee. You have completed 5 tasks.");
+    }
+    else if (role == Intern && completed_tasks > 10 &&is_manager_approved)
+    {
+        puts("You have access right. You are Intern. You have completed 10 tasks. You have been allowd to get the access right by manager.");
+    }
+    else
+    {
+        puts("You don't have access right.");
+    }
+
+    // Plan B
+    // Detect whether the access conditions are met
+    // 逻辑复杂，降低了代码的可读性
+    // 只适用于身份比较少，且有良好的注释
+    bool is_access_allowed = (role == Manager) || (role == Employee && completed_tasks > 5) || (role == Intern && completed_tasks > 10 && is_manager_approved);
+
+    if (is_access_allowed)
+    {
+        puts("You have access right.");
+    }
+    else
+    {
+        puts("You don't have access right.");
+    }
+}
+```
+
+## switch-case
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+// 为了区分不同的职位，可以定义一个枚举类型
+typedef enum {
+    Manager,    // 0
+    Employee,   // 1
+    Intern      // 2
+} Role;
+
+// Equivalent to
+// #define Manager 0
+// #define Employee 1
+// #define Intern 2
+
+bool check_access_for_manager();
+bool check_access_for_employee(uint8_t completed_tasks);
+bool check_access_for_intern(uint8_t completed_tasks, bool is_manager_approved);
+
+int main()
+{
+    /*
+        公司内部权限问题。
+        员工可以访问不同的系统资源，这取决于他们的职位和完成数量。权限规则如下：
+
+        1. Manaager 总是可以访问所有资源
+        2. Employee 如果完成5个以上的任务以后，则可以访问资源
+        3. Intern (实习生) 如果完成10个以上的任务以后，必须经过经理同意才可以访问
+    */
+    // 身份属性
+    Role role = Intern;
+
+    uint8_t completed_tasks = 7;
+    
+    bool is_manager_approved = false;
+
+    // Plan A
+    // if-else
+    // 既使用了else if
+    // 又嵌套了if
+    // 这样不好
+    if (role == Manager)
+    {
+        puts("You have access right. You are manager.");
+    }
+    else if (role == Employee && completed_tasks > 5)
+    {
+        puts("You have access right. You are Employee. You have completed 5 tasks.");
+    }
+    else if (role == Intern && completed_tasks > 10 &&is_manager_approved)
+    {
+        puts("You have access right. You are Intern. You have completed 10 tasks. You have been allowd to get the access right by manager.");
+    }
+    else
+    {
+        puts("You don't have access right.");
+    }
+
+    // Plan B
+    // Detect whether the access conditions are met
+    // 逻辑复杂，降低了代码的可读性
+    // 只适用于身份比较少，且有良好的注释
+    bool is_access_allowed = (role == Manager) || (role == Employee && completed_tasks > 5) || (role == Intern && completed_tasks > 10 && is_manager_approved);
+
+    if (is_access_allowed)
+    {
+        puts("You have access right.");
+    }
+    else
+    {
+        puts("You don't have access right.");
+    }
+
+    // 重置上一个Plan改变的 is_access_allowed 的默认值为 false
+    is_access_allowed = false;
+
+    // Plan C
+    // switch-case
+    switch (role)
+    {
+        case Manager:
+            is_access_allowed = true;
+            break;
+        
+        case Employee:
+            if (completed_tasks > 5)
+            {
+                is_access_allowed = true;
+            }
+            break;
+        case Intern:
+            if (completed_tasks > 10 && is_manager_approved)
+            {
+                is_access_allowed = true;
+            }
+            break;
+        default:
+            is_access_allowed = false;
+            break; 
+    }
+    if (is_access_allowed)
+    {
+        puts("You have access right.");
+    }
+    else
+    {
+        puts("You don't have access right.");
+    }
+
+    // 重置上一个Plan改变的 is_access_allowed 的默认值为 false
+    is_access_allowed = false;
+
+    // Plan D
+    // Using function based on Plan C
+    switch (role)
+    {
+        case Manager:
+            is_access_allowed = check_access_for_manager();
+            break;
+        
+        case Employee:
+                is_access_allowed = check_access_for_employee(completed_tasks);
+            break;
+        case Intern:
+                is_access_allowed = check_access_for_intern(completed_tasks, is_manager_approved);
+            break;
+        default:
+            is_access_allowed = false;
+            break; 
+    }
+    if (is_access_allowed)
+    {
+        puts("You have access right.");
+    }
+    else
+    {
+        puts("You don't have access right.");
+    }
+}
+
+bool check_access_for_manager()
+{
+    return true;
+}
+bool check_access_for_employee(uint8_t completed_tasks)
+{
+    return completed_tasks > 5;
+}
+bool check_access_for_intern(uint8_t completed_tasks, bool is_manager_approved)
+{
+    return completed_tasks > 10 && is_manager_approved;
+}
+```
+
+### Complete a state machine using switch-case
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+
+// 枚举
+typedef enum
+{
+    red_light,      // 0
+    green_light,    // 1
+    yellow_light    // 2
+}Traffic_Light;
+
+void traffic_light_control(Traffic_Light traffic_light_state);
+
+int main()
+{
+    // 状态机
+    // 管理复杂状态的转换， 使用switch case
+
+    // 默认状态为红灯
+    Traffic_Light traffic_light_state = red_light;
+
+    traffic_light_control(traffic_light_state);
+}
+
+void traffic_light_control(Traffic_Light traffic_light_state)
+{
+    switch (traffic_light_state)
+    {
+        case red_light:
+            puts("红灯");
+            traffic_light_state = green_light;
+            break;
+        case green_light:
+            puts("绿灯");
+            traffic_light_state = yellow_light;
+            break;
+        case yellow_light:
+            puts("黄灯");
+            traffic_light_state = red_light;
+            break;
+        default:
+            puts("What the fuck?");
+            break;
+    }
+}
+```
+
+## Using conditional-expression operators replaces if-else
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <stdbool.h>
+
+int main()
+{
+    // ? :
+    uint8_t score = 85;
+
+    char grade;
+
+    grade = (score >= 90) ? 'A' :
+            (score>= 80) ? 'B' :
+            (score >= 70) ? 'C' : 'D';
+
+    printf("Score: %" PRIu8 ", Grade: %c\n", score, grade);
+
+    // the same as:
+    // if (score >= 90)
+    // {
+    //     grade = 'A';
+    // }
+    // else
+    // {
+    //     if (score >= 80)
+    //     {
+    //         grade = 'B';
+    //     }
+    //     else
+    //     {
+    //         if (score >= 70)
+    //         {
+    //             grade = 'C';
+    //         }
+    //         else
+    //         {
+    //             grade = 'D';
+    //         }
+    //     }
+    // }
+}
+```
+
+## guard clauses(卫语句)
+
+卫语句的思想是提前将少数的不能成立的选项排除，并提前return。使用卫语句可以简化if-else的逻辑结构，提高代码的可读性。
+
+如下面的例子所示
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <stdbool.h>
+
+void check_car_rent(uint8_t age, uint8_t driving_exp_years);
+
+int main(void)
+{
+    // 租车案例
+    // age >= 21, 驾驶经验一年或一年以上
+
+    uint8_t age = 23;
+    uint8_t driving_exp_years = 2;
+
+    check_car_rent(age, driving_exp_years);
+
+    return 0;
+}
+
+void check_car_rent(uint8_t age, uint8_t driving_exp_years)
+{
+    // 卫语句
+    if (age < 21)
+    {
+        puts("You are too young.");
+
+        return;
+    }
+
+    if (driving_exp_years < 1)
+    {
+        puts("You don't have enough experience.");
+
+        return;
+    }
+
+    puts("Satisfy all contions.You can rent the car.");
+}
+```
+
+## switch-case 和 if-else 的根本区别
+
+1. `switch-case` 是根据表达式的值进行判断。这个表达式的类型应是integer。`if-else` 是根据表达式的布尔值进行判断。这个表达式最后的计算出的结果应是bool类型。
+
+如果同样模拟坐电梯去8层，`switch-case` 相当直接按下8层去到8层。`if-else` 相当于一层一层问。是1层吗？不是；是2层吗？不是……是8层吗？是。停止
+
+从这个角度而言，`switch-case` 比 `if-else` 更快。
+
+现如今，由于现代编译器对 `if-else` 的优化，这种差距对于现代的CPU来说变得微乎其微。
+
+2. 二者的默认行为不同。`if-else`可以不写默认行为，但是`switch-case`总要有一个默认的default。
+
+# 循环
+
+程序设计为什么要有循环：
+
+1. 避免代码重复
+2. 处理大量的数据
+3. 可以控制灵活的行为
+
+循环的作用：
+
+1. 执行重复的任务
+2. 构造检查机制
+3. 简化代码
+
+在企业中，在处理大量数据和性能敏感的一些应用当中，尽可能在循环体中减少不必要的计算，减少函数的调用。或者在使用数据结构时明确，某些数据结构可能会破坏循环。
+
+循环中要具有代码的可维护性。
+
+while循环需要检查的5项内容
+
+* 初始化
+* 循环的判断条件
+* 迭代变量是否有在变动
+
+排除循环的问题后。检查循环体内的逻辑判断，检查中最简单的debug方式就是使用printf()将想看的表达式的值输出。
+
+## while
+
+### 自动贩卖机
+
+```C
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <inttypes.h>
+
+int main(void)
+{
+    /*
+        自动贩卖机
+        
+        这个机器只支持硬币
+
+        假设只卖一种饮料，每瓶价格是$5
+    
+        怎样才能给客户饮料呢？
+
+        用户需要一直投币，直到金额足够，这样机器才可以提供饮料哦
+
+        只接受$1, $2, $5的币种
+    */
+
+    // 1. 初始化
+
+    // 饮料的价格 常量
+    const uint32_t PRICE = 5;
+    printf("%" PRIu32 "\n", PRICE);
+
+    // 用户当前投入的金额总数 迭代(每次增加)
+    uint32_t balance = 0;
+    
+    // 每次投入的硬币
+    uint32_t coin;
+
+    // 用戶使用提示
+    puts("欢迎使用自动贩卖机！本机器只提供一种饮料，价格是$5");
+    puts("请投币（只接受$1, $2, $5面值的三种硬币）");
+
+    // 2. 处理循环的条件
+    // 什么情况下会一直投币？
+    // balance < PRICE
+    while (balance < PRICE)
+    {
+        puts("余额不足, 请投币: 只接受1，2，5三种硬币");
+
+        // 模拟投币，假设用户输入的金额就是投币
+        scanf("%d", &coin);
+
+        // 检查每次投币是否有效 1,2,5
+        if (coin == 1 || coin == 2 || coin == 5)
+        {
+            balance += coin;
+        }
+        else
+        {
+            printf("对不起，我们不接受%" PRIu32 "面值的硬币，请重新投币\n", coin);
+        }
+    }
+    // 找零
+    if (balance > PRICE)
+    {
+        printf("剩余的$%" PRIu32 "已退回，请收好您的零钱", balance - PRICE);
+    }
+    
+    puts("谢谢惠顾，请取走您的饮料。");
+}
+```
+
+自动贩售机实例中如果把所有的uint32_t都换成uint8_t。并且把相应的输出的格式也改变一下。那么在scanf("%" PRIu8, &coin);这条语句执行过后，PRICE这个常量的值会变成0。具体原因可能和内存的分配有关，uint8_t占一个字节，而`"%"PRIu8`实则为`%u`，其占4个字节。所以在更改coin的值的时候，更改了4个字节，从而向上更改了常量`BALANCE`的值。
+
+### 计算输入数字的加和并处理字符和字符串的退出检测问题
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <inttypes.h>
+#include <stdlib.h>
+#include <errno.h>
+
+int main(void)
+{
+    // 初始化数字的和，初始时和为0
+    int32_t sum = 0;
+
+    // 输入的字符数组（字符串）
+    char input[50];
+
+    // 用户的输入提示信息
+    puts("请输入一系列数字(不超过50位)，用回车隔开，我们将会计算他们的和，输入q结束求和程序");
+
+    // input数组的尾部指针
+    // 用于做strtol()函数的参数输入
+    char* end;
+    // 死循环，直到用户输入q，break出循环，退出程序
+    while (true)
+    {
+        // 每次循环开始将错误提示信息重置清零
+        errno = 0;
+
+        // 提示用户应该输入数字了
+        puts("请输入一个数字或输入q退出");
+
+        // scanf重新赋值，将input字符数组重新赋值
+        scanf("%49s", &input);
+
+        if (input[0] == 'q' && input[1] == '\0')
+        {
+            puts("程序退出");
+            break;
+        }
+
+        // strtol()函数可以检查是否存在错误(非数字，数字和字符混合等)
+        // 但是不能检查输入是否超范围
+        long number = strtol(input, &end, 10);
+
+        // 非法输入检查
+        if (end == input || *end != '\0')
+        {
+            puts("无效输入，请输入一个数字或'q'");
+            
+            // 无效输入，需要重新输入，循环重新开始
+            continue;
+        }
+        // 超出范围检查
+        if (errno == ERANGE )
+        {
+            printf("数字超出范围，请输入一个大于等于%" PRId32 "小于等于%" PRId32 "的整数\n", INT32_MIN, INT32_MAX);
+
+            // 超出范围，需要重新输入，循环重新开始
+            continue;
+        }
+
+        // 经过两道检查都没问题后，执行加和操作
+        sum += (int32_t) number;
+    }
+    printf("The summary is %" PRId32 "\n", sum);
+}
+```
+
+## do-while
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <stdbool.h>
+
+int main(void)
+{
+    // 跑步的总圈数
+    const uint32_t TOTAL_LAPS = 10;
+
+    // 当前跑的圈数
+    // 初始值为0
+    uint32_t current_laps = 0;
+
+    // while循环模拟跑步
+    // 先检查圈数是否足够，不够再跑
+    while (current_laps < TOTAL_LAPS)
+    {
+        current_laps++;
+        printf("当前圈数: %" PRIu32 "\n", current_laps);
+    }
+
+    // 为do-while循环模拟，将圈数清零
+    current_laps = 0;
+
+    // do-while循环模拟跑步
+    // 先跑一圈再说
+    do
+    {
+        current_laps++;
+        printf("当前圈数: %" PRIu32 "\n", current_laps);
+    } while (false);
+    // 发现即使条件是false也会先跑一圈
+
+    return 0;
+}
+```
+
+### Difference between while and do-while
+
+* `while` 在执行之前判断是否满足循环条件，不满足不执行循环体。
+* `do-while` 在执行过一次之后才判断是否满足循环条件，无论是否满足条件，都会执行循环体一次。
+
+### Apply do-while to achieve a menu
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <stdbool.h>
+
+int main(void)
+{
+    uint8_t choice;
+    // 游戏菜单模拟
+    do 
+    {
+        // 显示菜单
+        puts("****主菜单****");
+        puts("1. 新游戏");
+        puts("2. 载入游戏");
+        puts("3. 退出");
+        puts("****请选择一个选项****");
+
+        // 严谨的程序应该有输入检查，这里是案例，暂不做检查功能了
+        scanf("%" PRIu8, &choice);
+
+        // 处理用户的选择
+        switch (choice)
+        {
+            case 1:
+                puts("新游戏已经启动");
+                // 新游戏的逻辑
+                // TODO
+                break;
+            case 2:
+                puts("载入游戏中");
+                // 载入游戏的逻辑
+                // TODO
+                break;
+            case 3:
+                puts("感谢游玩，再见");
+                break;
+            default:
+                puts("无效选项，请重新选择");
+                break;
+        }
+    } while (choice != 3);  // 只要用户不输入3就一直循环
+}
+```
+
+### Apply do-while to achieve a guess random number game
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <time.h>
+#include <stdlib.h>
+
+int main(void)
+{
+    // 随机生成的随机数，用于给用户猜测
+    uint32_t secret_num;
+
+    // 用户的猜测值
+    uint32_t guess;
+
+    // 生成随机数
+    srand(time(NULL));
+    // 生成1-100的随机数
+    secret_num = rand() % 100 + 1;
+
+    puts("猜猜我想的是哪一个数(1-100)?");
+
+    do
+    {
+        puts("请输入你的猜测:");
+        scanf("%" PRIu32, &guess);
+
+        // TODO 输入检查
+        if (guess < secret_num)
+        {
+            puts("太小了，再试试看吧");
+        }
+        else if (guess > secret_num)
+        {
+            puts("太大了，再试试看吧");
+        }
+    } while (guess != secret_num);
+
+    puts("你猜对了，很棒！");
+}
+```
+
+## for
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <stdbool.h>
+#include <math.h>
+
+int main(void)
+{
+    /*
+        用户输入一个数
+        
+        判断是否是素数并返回结果
+    */
+
+    // 用户输入的数
+    uint32_t num;
+    
+    // 是否为素数的bool值，默认为true
+    bool is_prime = true;
+
+    // 用户输入提示
+    puts("请输入一个大于等于二的正整数，我们将判断它是否为素数，并返回结果");
+
+    // 用户输入，结果存入num
+    scanf("%" SCNu32, &num);
+
+    // 输入检查 TODO
 
 
-# 输入需要有输入验证
+    if (num <= 1)
+    {
+        // 因为没有做输入检查
+        // 用户输入小于1的数，默认不是素数
+        is_prime = false;
+        
+        // 提示用户输入的数不合规
+        puts("This number is not a legal number.");
+        return 0;
+    }
 
-输入检查和用户提示
+    // 素数判断
+    // 将一个数分成两个数的乘积
+    // 其中一个一定 >= 原数的平方根，另一个一定 <= 原数的平方根
+    // 所以只需要循环到sqrt(num)即可
+    // 即 index <= sqrt(num)
+    // sqrt(num) 是一个double类型的数据
+    // 在C语言中，开平方是一个比较费时的操作
+    // 为了提高效率，可将开平方操作改写成乘方操作
+    // 即 index * index <= num
+    // 在循环中，不要使用sqrt()操作
+    for(uint32_t index = 2; index * index <= num; index++)
+    {
+        if (num % index == 0)
+        {
+            is_prime = false;
+            break;
+        }
+    }
+    
+    // 输出判断结果
+    if (is_prime)
+    {
+        puts("This number is a prime number.");
+    }
+    else
+    {
+        puts("This number is not a prime number.");
+    }
+}
+```
+
+### practice pyramid
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+int main(void)
+{
+    // 金字塔的层数
+    uint32_t level;
+
+    // 提示用户输入金字塔层数
+    puts("请输入金字塔的层数");
+
+    // 用户输入
+    scanf("%" PRIu32, &level);
+
+    // 输入检查 TODO
+
+    // 输出提示
+    puts("得到的金字塔如下");
+
+    for (uint32_t raw = 1; raw <= level; raw++)
+    {
+        // 计算并提前存储每一层的空格
+        uint32_t spaces_num = level - raw;
+
+        // 金字塔前面的空格
+        for (uint32_t index = 1; index <= spaces_num; index++)
+        {
+            printf("  ");
+        }
+
+        // 金字塔前半边数字
+        for (uint32_t index = 1; index <= raw; index++)
+        {
+            printf("%" PRIu32" ", index);
+        }
+
+        // 金字塔后半边数字
+        for(uint32_t index = raw - 1; index >= 1; index--)
+        {
+            printf("%" PRIu32" ", index);
+        }
+        
+        // 金字塔后面的空格
+        for (uint32_t index = 1; index <= spaces_num; index++)
+        {
+            printf("  ");
+        }
+
+        // 一行输出完成后换行
+        printf("\n");
+    }
+
+    // TODO 
+    // 多次使用printf造成了性能的浪费
+    // 未来可以进一步优化
+}
+```
+
+### apply for to simulate a progress bar
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+
+// #define __STDC_FORMAT_MACROS 1
+
+#include <inttypes.h>
+#include <windows.h>
+
+
+int main(void)
+{
+    // 模拟总数据量
+    const uint32_t total_steps = 100;
+
+    // 模拟提示信息
+    puts("处理中，请稍后");
+
+    // 模拟进度条
+    for (uint32_t index = 0; index <= total_steps; index++)
+    {
+        printf("\r[");
+
+        // 打印进度条的完整部分
+        for (uint32_t completed_index = 0; completed_index < index; completed_index++)
+        {
+            printf("#");
+        }
+
+        // 打印进度条未完成的部分
+        for (uint32_t uncompleted_index = index; uncompleted_index < total_steps; uncompleted_index++)
+        {
+            printf(" ");
+        }
+
+        printf("] %" PRIu32 "%%", index * 100 / total_steps);
+        // (已经传输的数据量 / 文件总大小) * 100
+
+        // 确保进度条及时显示
+        fflush(stdout);
+
+        // 模拟程序运行过程
+        Sleep(100);
+    }
+
+    // 处理完成提示信息
+    puts("\n处理完成");
+
+}
+```
+
+# 数组
+
+多个数据和变量如何处理？
+
+1. 数据组织		结构体
+2. 资源管理		数据结构
+3. 性能优化		算法
+
+数组是最基础的数据组织，资源管理方式。
+
+术语说明
+
+1. `numbers[0]`		下标为0的数组
+2. 元素		里面的东西
+
+注意事项
+
+1. 数组定义时下标必须是常量。
+   * 这个常量必须是宏定义常量，而不能是const常量
+   * const常量在编译时仍然以变量身份出现，所以使用const常量无法通过编译
+
+2. 数组使用前必须要初始化。
+
+   * `uint32_t numbers[5];` 这种形式只能叫做声明。
+   * `uint32_t numbers[5] = {1, 2, 3, 4, 6};` 这种形式才能叫做初始化。
+
+3. 简单初始化：
+
+   * `uint32_t numbers[5] = {0};` 所有数组都初始化值为0。
+
+   * `uint32_t numbers[5] = {1};` 除下标为0的数组值为1，剩下的都为0。
+
+4. 常见错误
+
+   1. 越界访问
+
+      ```c
+      uint32_t numbers[5] = {0};
+      printf("%" PRIu32"\n", numbers[6]);
+      ```
+
+   2. 未初始化数组
+
+      ```c
+      uint32_t uninit_array[5];
+      printf("%" PRIu32 "\n", uninit_array[5]);
+      ```
+
+   3. 数组大小错误
+
+      ```c
+      uint32_t wrone_size_array[-1];
+      ```
+
+5. 常见警告
+
+   1. 部分初始化
+
+      ```c
+      uint32_t part_init_array[SIZE] = {1, 2};
+      ```
+
+6. 提示：总是初始化数组
+
+   ```c
+   uint32_t numbers[SIZE] = {0};
+   ```
+
+数组的内存分布：
+
+​	以 `uint32_t array[10] = {0};` 为例，这将在内存中开辟一块4bytes × 10的地址连续内存空间，用于存放数组中所有数据的值。
+
+遍历
+
+排序
+
+查询
+
+增删改查(CRUD)	数据结构	算法 优解
+
+边界(Boundary)
+
+动态数组
+
+C11新特性动态数组
+
+## 实例——计算平均分
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+// 学生的数量 
+#define STUDENTS_NUMBER 5
+
+int main(void)
+{
+    /*
+        假如我们有五个学生的成绩，我们需要计算平均成绩，找出最高分、最低分
+    */
+
+
+    // 定义一个数组存储所有学生的成绩
+    uint32_t grades[STUDENTS_NUMBER] = {85, 93, 78, 90, 99};
+
+    // 所有学生成绩的和
+    uint32_t sum = 0;
+
+    // 最高分
+    uint32_t max_grade = grades[0];
+
+    // 最低分
+    uint32_t min_grade = grades[0];
+
+    // 平均分
+    double average_score;
+
+    // 提示信息
+    puts("所有人的成绩单如下:");
+
+    for (uint32_t index = 0; index < STUDENTS_NUMBER; index++)
+    {
+        printf("%" PRIu32 "号学生的成绩为: %" PRIu32 "\n", index + 1, grades[index]);
+
+        // 计算加和
+        sum += grades[index];
+
+        // 寻找最高分
+        if (grades[index] > max_grade)
+        {
+            max_grade = grades[index];
+        }
+
+        // 寻找最低分
+        if (grades[index] < min_grade)
+        {
+            min_grade = grades[index];
+        }
+    }
+    // 计算平均分
+    average_score = (double) sum / STUDENTS_NUMBER;
+
+    // 输出平均分
+    printf("The average score is %lf.\n", average_score);
+
+    // 输出最高分
+    printf("最高分: %" PRIu32 "\n", max_grade);
+
+    // 输出最低分
+    printf("最低分: %" PRIu32 "\n", min_grade);
+}
+```
+
+## 实例——计算字符串中每个字符出现的频率
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <ctype.h>
+
+#define LETTER_COUNT 26
+
+int main(void)
+{
+    // size: 26 每一个格子代表一个字母出现的频率
+    uint32_t letters_frequency[LETTER_COUNT] = {0};
+    
+    // 给定一段需要统计的字符串
+    char text[] = "Example text for frequency analysis.";
+
+    // 统计每个字母出现的次数
+    for (uint32_t index = 0; text[index] != '\0'; index++)
+    {
+        // 将读取到的字母转化为小写
+        char ch = tolower(text[index]);
+
+        // 将读取到的字母对应的数组的值+1
+        // 忽略空格等非26个字母的情况
+        if (ch >= 'a' && ch <= 'z')
+        {
+            letters_frequency[ch - 'a']++;
+        }
+    }
+
+    // 输出频率数组
+    for (uint32_t i = 0; i < LETTER_COUNT; i++)
+    {
+        printf("The frequency of %c is %" PRIu32 ".\n", i + 'a', letters_frequency[i]);
+    }
+}
+```
+
+# 输入需要有输入检查验证
+
+输入检查和用户提示。
+
+## scanf的简单使用
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void)
+{
+    uint32_t number1;
+    
+    uint32_t number2;
+    
+    uint32_t number3;
+    
+    // 要求用户从键盘上输入，与我们交互
+    // scan 扫描
+    // "%d,%d,%d"代表了写入规则
+    // 规则表示三个int值中间应用,隔开
+    // 规则怎样定义，用户怎样输入。
+    scanf("%d,%d,%d", &number1, &number2, &number3);
+}
+```
+
+CSDN博客详解：
+
+* [C语言总结-printf/scanf详细总结-CSDN博客](https://blog.csdn.net/runafterhit/article/details/106310833)
+
+* [2.4 详解 scanf：格式、原理、返回值与混合数据处理-CSDN博客](https://blog.csdn.net/qq_53139964/article/details/140386269)
 
 # 命名规范
 
