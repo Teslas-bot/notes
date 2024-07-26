@@ -2705,6 +2705,282 @@ int main(void)
 }
 ```
 
+# Function 函数
+
+函数可以理解为需要重复使用的代码块。将这部分代码单独起一个名字方便重复使用。
+
+函数编写要领
+
+1. 明确函数目的，明确它的功能将帮助你决定哪些输入是必须的（形式参数、模板），以及如何报告它的工作结果。
+2. 识别所需要的输入
+3. 确定函数的输出
+4. 使用适当的数据类型
+5. 函数的命名清晰，并且先声明后定义
+
+## 全局变量和局部变量
+
+局部变量：函数内的变量，作用域在函数内。
+
+全局变量：函数外的变量，作用域在整个文件。
+
+# 表驱动法
+
+像所有查找表一样，直接访问表取代了更复杂的逻辑控制结构。它们是“直接访问”，因为您不必跳过任何复杂的步骤即可在表中查找所需的信息。
+
+## Example——成绩评分系统
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <stdlib.h>
+#include <stdbool.h>
+
+char get_credits(uint32_t grade);
+
+int main(void)
+{
+    uint32_t grade;
+
+    // 输入提示信息
+    puts("请输入你的成绩(0-100)，我们会给出你的评级");
+
+    // 输入成绩
+    scanf("%" SCNu32, &grade);
+
+    printf("你的成绩等级是:%c\n", get_credits(grade));
+
+}
+
+char get_credits(uint32_t grade)
+{
+    // 多个if-else, 逻辑过于复杂
+    // if (grade >= 90)
+    // {
+    //     return 'A';
+    // }
+    // else if (grade >= 80)
+    // {
+    //     return 'B';
+    // }
+    // else if (grade >= 70)
+    // {
+    //     return 'C';
+    // }
+    // else if (grade >= 60)
+    // {
+    //     return 'D';
+    // }
+    // else 
+    // {
+    //     return 'F';
+    // }
+
+    // 表驱动法
+    // 非显式数组
+    char grades[] = {'F', 'F', 'F', 'F', 'F', 'F', 'D', 'C', 'B', 'A'}; 
+    return grades[grade / 10];
+}
+```
+
+
+
+## 规则映射
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <time.h>
+#include <stdlib.h>
+
+// 游戏选项
+#define ROCK 1
+#define PAPER 2
+#define SCISSIORS 3
+
+// 函数声明
+void print_instrucions();
+uint32_t get_player_move();
+uint32_t get_computer_move();
+void determine_winner(uint32_t player_move, uint32_t computer_move);
+void print_choice(uint32_t choice);
+
+
+int main(void)
+{
+    // 初始化随机数生成器
+    srand(time(NULL));
+
+    // 打印游戏说明
+    print_instrucions();
+
+    // 获取玩家和计算机的选择
+    uint32_t computer_move = get_computer_move();
+    uint32_t player_move = get_player_move();
+
+    // 展示玩家和计算机的选择
+    puts("你选择了");
+    print_choice(player_move);
+    puts("计算机选择了");
+    print_choice(computer_move);
+
+    // 获取游戏结果
+    determine_winner(player_move, computer_move);
+
+}
+
+void print_instrucions()
+{
+    // 打印游戏说明
+    puts("石头，剪刀，布，游戏开始！");
+    puts("规则：输入数字，确定猜拳。1 (石头) > 3 (剪刀) > 2 (布)");
+}
+
+uint32_t get_player_move()
+{
+    uint32_t choice;
+
+    scanf("%" SCNu32, &choice);
+
+    // 输入范围检查
+    while (choice < ROCK ||choice > SCISSIORS)
+    {
+        puts("输出无效，请重新输入");
+        scanf("%" SCNu32, &choice);
+    }
+
+    return choice;
+}
+uint32_t get_computer_move()
+{
+    return (rand() % (SCISSIORS - ROCK + 1) + ROCK); 
+}
+
+void determine_winner(uint32_t player_move, uint32_t computer_move)
+{
+    /* 使用规则映射的方法判断赢家 */
+    // 卫语句判读平局
+    if (player_move == computer_move)
+    {
+        puts("平局");
+    }
+
+    // 定义一个胜利的规则映射，其中键是玩家的移动，值是玩家移动可以打败计算机的移动
+    // 玩家的数组为 players[4] = {0, ROCK, PAPER, SCISSIORS};
+    // 即是{0, 1, 2, 3}
+    // 而玩家想要对应获胜，应为 {0, SCISSIORS, ROCK, PAPER};
+    // 0是占位符
+    uint32_t winner_moves[4] = {0, SCISSIORS, ROCK, PAPER};
+
+    if (computer_move == winner_moves[player_move])
+    {
+        puts("你赢了");
+    }
+    else
+    {
+        puts("你输了");
+    }
+}
+void print_choice(uint32_t choice)
+{
+    switch (choice)
+    {
+        case 1:
+            puts("石头");
+            break;
+        case 2:
+            puts("布");
+            break;
+        case 3:
+            puts("剪刀");
+            break;
+        default:
+            break;
+    }
+    
+}
+```
+
+# 递归与尾递归(recursion)
+
+* Frank视频参考：
+
+[141.为什么不建议使用递归以及递归和尾递归用途区别_哔哩哔哩_bilibili](https://www.bilibili.com/video/BV1Ae41117Gd?p=151&spm_id_from=pageDriver&vd_source=0c6e9aa27976c7e534f51b25bcdd53f0)
+
+* 参考博客
+
+[递归和尾递归的区别和原理-CSDN博客](https://blog.csdn.net/zcyzsy/article/details/77151709)
+
+如果递归深度特别大，那会存在着栈溢出的风险。此时可以考虑使用尾递归来替代递归，来规避栈溢出的风险。同时，一般情况下，尾递归的效率要高于递归。尾递归的实现依赖于编译器的参数传递，所以不同的编译器对尾递归的实现方式不同。良好的尾递归的实现是依赖编译器的。
+
+企业中使用递归和尾递归是很慎重的，原因：
+
+1. 效率低
+2. 内存开销大
+3. 难以理解，代码不易于维护
+
+## 递归实现阶乘
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+uint32_t factorial(uint32_t n);
+
+int main(void)
+{
+    uint32_t number = 5;
+    
+    printf("%" PRIu32 "的阶乘是%" PRIu32 "\n", number, factorial(number));
+}
+
+uint32_t factorial(uint32_t n)
+{
+    if (n == 0)
+    {
+        return 1;
+    }
+    else
+    {
+        return n * factorial(n - 1);
+    }
+}
+```
+
+
+
+## 尾递归实现阶乘
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+uint32_t factorial(uint32_t n, uint32_t acc);
+int main(void)
+{
+    uint32_t number = 5;
+    
+    printf("%" PRIu32 "的阶乘是%" PRIu32 "\n", number, factorial(number, 1));
+}
+
+uint32_t factorial(uint32_t n, uint32_t acc)
+{
+    if (n == 1)
+    {
+        return n * acc;
+    }
+    else
+    {
+        return factorial(n - 1, n * acc);
+    }
+}
+```
+
+
+
 # 输入需要有输入检查验证
 
 输入检查和用户提示。
