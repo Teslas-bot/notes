@@ -2723,6 +2723,75 @@ int main(void)
 
 全局变量：函数外的变量，作用域在整个文件。
 
+## 企业规范之使用void作为函数参数的必要性
+
+### Example——function()
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+void greet();
+
+int main(void)
+{
+    uint32_t n = 45;
+    
+    greet(n);
+}
+
+void greet()
+{
+    puts("Hello world!");
+}
+```
+
+上述情况gcc不会提示任何的报错信息，且能够正常执行。
+
+### Example——function(void)
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+// void greet();
+
+void greet(void);
+
+int main(void)
+{
+    uint32_t n = 45;
+    
+    greet(n);
+}
+
+// void greet()
+// {
+//     puts("Hello world!");
+// }
+
+void greet(void)
+{
+    puts("Hello world!");
+}
+```
+
+gcc 提示 error 信息
+
+```c
+main.c: In function 'main':
+main.c:13:5: error: too many arguments to function 'greet'
+     greet(n);
+     ^~~~~
+main.c:7:6: note: declared here
+ void greet(void);
+      ^~~~~
+```
+
+
+
 # 表驱动法
 
 像所有查找表一样，直接访问表取代了更复杂的逻辑控制结构。它们是“直接访问”，因为您不必跳过任何复杂的步骤即可在表中查找所需的信息。
@@ -2902,7 +2971,7 @@ void print_choice(uint32_t choice)
 }
 ```
 
-# 递归与尾递归(recursion)
+# 递归与尾递归(recursion and tail_recursive)
 
 * Frank视频参考：
 
@@ -2976,6 +3045,262 @@ uint32_t factorial(uint32_t n, uint32_t acc)
     {
         return factorial(n - 1, n * acc);
     }
+}
+```
+
+## 企业使用迭代来代替递归
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+// 递归求解斐波那契数列的第n项
+uint32_t fibonacci_recusion(uint32_t n);
+
+// 尾递归求解斐波那契数列的第n项
+uint32_t fibonacci_tail_recusive(uint32_t n, uint32_t fib_n_minus_2, uint32_t fib_n_minus_1);
+
+// 迭代求解斐波那契数列的第n项
+uint32_t fibonacci_loop(uint32_t n);
+
+int main(void)
+{
+    uint32_t n = 45;
+
+    printf("尾递归实现的斐波那契数列第%" PRIu32 "的值为 %" PRIu32 "\n", n, fibonacci_tail_recusive(n, 1, 1));
+
+    printf("递归实现的斐波那契数列第%" PRIu32 "的值为 %" PRIu32 "\n", n, fibonacci_recusion(n));
+
+    printf("循环迭代实现的斐波那契数列第%" PRIu32 "的值为 %" PRIu32 "\n", n, fibonacci_loop(n));
+}
+
+uint32_t fibonacci_recusion(uint32_t n)
+{
+    switch (n)
+    {
+    case 0:
+        return 0;
+        break;
+
+    case 1:
+        return 1;
+        break;
+
+    default:
+        return fibonacci_recusion(n - 1) + fibonacci_recusion(n - 2);
+    }
+}
+
+uint32_t fibonacci_tail_recusive(uint32_t n, uint32_t fib_n_minus_2, uint32_t fib_n_minus_1)
+{
+    switch (n)
+    {
+        case 1: 
+            return 1;
+            break;
+        case 2:
+            return 2;
+            break;
+        case 3:
+            return fib_n_minus_2 + fib_n_minus_1;
+            break;
+        default:
+            return fibonacci_tail_recusive(n - 1, fib_n_minus_1, fib_n_minus_2 + fib_n_minus_1);
+            break;
+    }
+}
+
+uint32_t fibonacci_loop(uint32_t n)
+{
+    uint32_t first = 1;
+    uint32_t second = 1;
+    uint32_t third;
+
+    for (uint32_t i = 2; i < n; i++)
+    {
+        third = first + second;
+        first = second;
+        second = third;
+    }
+
+    return third;
+}
+```
+
+# 作用域(Scope)与生命周期(Lifetime)
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+// 全局变量，全局作用域
+// 生命周期从程序开始到程序结束
+int32_t g_global_var = 10;
+
+void demoFunction(void);
+
+int main(void)
+{
+    // 作用域(Scope)
+    // 一个函数内，一个文件内，整个程序内(配置文件)
+    
+    // 一个函数内的变量有效范围：局部作用域 Local Scope
+    // 一个函数内有效范围的变量，或者局部作用域内的变量：局部变量
+    
+    demoFunction();
+    
+    // 尝试访问local_var将导致编译错误，因为它的作用域仅限于demoFunction内
+    // local_var的生命周期将只在demoFunction执行的过程中，所以此时其生命周期已经结束
+    // 所以尝试访问local_car会导致编译错误
+    // printf("In main, Local var = %" PRId32 "\n", local_var);
+    
+    
+    printf("In main, Global var = %" PRId32 "\n", g_global_var);
+    
+    // 全局变量的生命周期将在程序执行结束时结束
+    return 0;
+}
+
+void demoFunction(void)
+{
+    // 局部变量，局部作用域
+    int32_t local_var = 5;
+    
+    printf("Inside demoFunction, Local var = %" PRId32 "\n", local_var);
+    
+    printf("Inside domoFunction, Global var = %" PRId32 "\n", g_global_var);
+    
+    // 局部变量的生命周期在函数返回时结束
+}
+```
+
+生命周期管理不当可能会导致的问题：
+
+1. 内存泄漏
+2. 访问已经被销毁的变量(悬挂引用)
+3. 过度消耗资源
+
+## 局部变量(Local Variables)
+
+1. 作用域限定
+
+2. 自动存储期
+
+3. 初始值未定义
+
+   * 在分配内存时，局部变量会被默认分配在栈上。此时内存默认的初始值是不会改变的。所以在定义局部变量时，应该在定义时即进行初始化。
+
+   ```c
+   void demonstrateLocalVariable(void)
+   {
+       // 局部变量声明
+       // 声明时即定义
+       int32_t local_var = 100;
+       
+       printf("Local variable inside function: %" PRId32 "\n", local_var);
+   }
+   ```
+
+## 全局变量(Global Variables)
+
+全局变量的一个重要功能是可以跨越函数边界，共享数据；从而可以减少传递给函数的参数数量，简化调用。
+
+1. 程序范围内的可见性
+2. 静态存储期
+3. 默认初始化
+   * 整型默认初始化为0，指针默认初始化为NULL
+
+缺点：
+
+1. 使用过多的全局变量会降低代码的可读性。
+2. 会增加出错的风险。
+3. 线程安全问题：在多线程环境中，未加锁的全局变量可能会导致数据竞争和不一致的问题。
+
+## 静态局部变量(Static Local Variables)
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+void increment_counter(void);
+
+int main(void)
+{
+    // 静态变量 static  variables
+
+    for (uint32_t i = 0; i < 4; i++)
+    {
+        increment_counter();
+    }
+
+    // 静态局部变量的可见性只在它声明的函数当中
+    // 在main函数中访问在increment_counter()函数中声明的counter变量的值是找不到的
+    printf("The value of counter: %" PRIu32 "\n", counter);
+
+    return 0;
+}
+
+void increment_counter(void)
+{
+    // 静态局部变量
+    static uint32_t counter = 0;
+    // 静态变量在函数内部声明，并且程序期间只初始化一次。即使函数执行结束，它的值也不会消失，而是保持到下次函数的调用。跨函数保持着状态和计数，直到程序结束。
+
+    counter++;
+
+    printf("Counter: %" PRIu32 "\n", counter);
+}
+```
+
+## 静态全局变量(Static Global Variables)
+
+静态全局变量仅在本文件中可见。
+
+run_app.c
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include "helper.h"
+
+uint32_t g_static_var = 10;
+
+void access_g (void);
+
+int main(void)
+{
+    printf("Main before: %" PRId32 "\n", g_static_var);
+    access_g();
+    try_access_g();
+}
+
+void access_g (void)
+{
+    g_static_var += 5;
+    printf("Inside access_g: %" PRId32 "\n", g_static_var);
+}
+```
+
+
+
+helper.c
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+// 通过extern关键字声明对外部文件全局变量的访问
+extern uint32_t g_static_var;
+
+void try_access_g(void)
+{
+    g_static_var += 10;
+    printf("Inside helper.c try_access_g: %" PRIu32 "\n", g_static_var);
 }
 ```
 
