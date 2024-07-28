@@ -2790,6 +2790,118 @@ main.c:7:6: note: declared here
       ^~~~~
 ```
 
+## 函数的注释
+
+```c
+#include <stdio.h>
+#include <inttypes.h>
+
+int32_t add_two_numbers(int32_t num1, int32_t num2);
+
+int main(void)
+{
+    int32_t result = add_two_numbers(5, 10);
+    printf("The sum is: %" PRId32 "\n", result);
+
+}
+
+/**
+ * Calculates the sum of two integers.
+ * 
+ * Parameters:
+ * - num1: The first integer for the sum.
+ * - num2: The second integer for the sum.
+ * 
+ * Returns:
+ * - The sum of num1 and num2 as an int32_t.
+ * 
+ * Notes:
+ * - The function uses int32_t to ensure the calculation is compatiable across different platforms.
+ * - This is a basic example intended for beginners who are not yet familiar with pointer.
+ */
+int32_t add_two_numbers(int32_t num1, int32_t num2)
+{
+    return num1 + num2;
+}
+
+```
+
+# 地址和指针
+
+地址：唯一标识内存中存储数据的位置。
+
+为什么需要地址
+
+* 可以快速查看这个东西（内存）的内容（值）。甚至可以不用知道这个东西的名字（变量名）。
+
+指针：不存具体的数据，只存变量的地址。
+
+## Practice
+
+```c
+#include <stdio.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+int main(void)
+{
+    uint32_t building_floors[5] = {101, 102, 103, 104, 105};
+
+    // 快递员需要寻找的目标住户
+    uint32_t target_floor = 103;
+
+    // ptr_floor_103 -> (指向) &building_floors[2]
+    uint32_t *ptr_floor_103 = &building_floors[2];
+    printf("ptr_floor_103指针变量保存的是: %p\n", ptr_floor_103);
+    printf("ptr_floor_103指针变量指向的值是: %" PRIu32 "\n", *ptr_floor_103);
+    printf("快递员通过*(指针相当于一个地图工具), 他带着ptr_floor_103这个指针变量去寻找....\n");
+    printf("于是他找到了业主的门牌号%" PRIu32 "\n", *ptr_floor_103);
+
+    // 快递员找到你了。。。你要求快递员: 我们这边门牌号发生变化了，我现在的门牌号是106
+    int* ptr_new_106 = ptr_floor_103;
+
+    *ptr_new_106 = 106;
+
+    // 门牌号发生改变
+    printf("building_floors[2] = %" PRIu32 "\n", building_floors[2]);
+
+    // 尝试使用错误类型的指针去指向uint32_t的数据
+    char *ptr_floor_103_char = &building_floors[2];
+    
+    // 尝试读取错误指针类型中存放的地址
+    printf("ptr_floor_103_char指针变量保存的是: %p\n", ptr_floor_103);
+    
+    // 尝试用错误的输出类型输出错误指针中存储地址中存放的值。
+    printf("ptr_floor_103_char指针变量指向的值是: %c\n", *ptr_floor_103);
+
+    bool is_found = false;
+
+    printf("快递员开始在大楼中寻找 %" PRIu32 "...\n", target_floor);
+
+    for (uint32_t i = 0; i < 5; i++)
+    {
+        printf("用户%" PRIu32 "的地址: %p\n", building_floors[i], &building_floors[i]);
+
+        if (building_floors[i] == target_floor)
+        {
+            printf("快递员找到了住户%" PRIu32 "的地址: %p", target_floor, (void*)&building_floors[i]);
+
+            is_found = true;
+            break;
+        }
+    }
+
+    if (! is_found)
+    {
+        puts("快递员没有找到该住户");
+    }
+
+    return 0;
+}
+
+```
+
 
 
 # 表驱动法
@@ -3267,7 +3379,11 @@ run_app.c
 #include <inttypes.h>
 #include "helper.h"
 
-uint32_t g_static_var = 10;
+// 静态全局变量仅能在本文件中可见
+// 如果g_static_var这个全局变量被声明成静态全局变量
+// 则helper.c中的try_access_g()函数会因为无法访问g_static_var这个变量而报错
+// 此时即使在helper.c在文件中使用extern关键字声明g_static_var变量为外部全局变量也不行
+static uint32_t g_static_var = 10;
 
 void access_g (void);
 
@@ -3285,8 +3401,6 @@ void access_g (void)
 }
 ```
 
-
-
 helper.c
 
 ```c
@@ -3301,6 +3415,77 @@ void try_access_g(void)
 {
     g_static_var += 10;
     printf("Inside helper.c try_access_g: %" PRIu32 "\n", g_static_var);
+}
+```
+
+## 块作用域和链接性
+
+块作用域：{}最近的内{}即为变量的块作用域
+
+链接性：外部链接性(外部文件也可用)，内部链接性（只在当前文件内部可用），无链接性（文件内部局部可用）
+
+```c
+#include <stdio.h>
+
+void demo(int x);
+
+int main(void)
+{
+    return 0;
+}
+
+// 函数作用域
+// 'x'具有函数作用域
+void demo(int x)
+{
+    // 作用域(Scope)
+    // 链接性(Linkage)
+    
+    // 块作用域(Block Scope)
+    int a = 10;		// 'a'具有块作用域，仅在demo()中可见
+    if (a > 5)
+    {
+        int b = a + 5;	// 'b'具有块作用域，仅在if语句中可见
+    }
+    // 'i' 具有块作用域，仅在for中可见
+    for (int i = 0; i < 100; i++)
+    {
+        
+    }
+}
+```
+
+
+
+# register寄存器声明
+
+**寄存器**(Register) 是中央处理器内用来暂存指令、数据和地址的电脑存储器。寄存器的存贮容量有限，读写速度非常快。在计算机体系结构里，寄存器储存在已知时间点所作计算的中间结果，通过快速访问数据来加速计算机程序的执行。
+
+```c
+#include <stdio.h>
+
+void demo_reg_var(void);
+
+int main(void)
+{
+    demo_reg_var();
+
+    return 0;
+}
+
+void demo_reg_var(void)
+{
+    // 声明寄存器变量
+    // 我们建议编译器，尽可能将counter放在寄存器中
+    register int counter;
+    // 不能使用 &counter 获取counter的地址
+    // 因为counter不在内存中，没有地址
+    // 在现代编译器良好的优化下，已经很少有场景需要程序员主动告诉编译器需要将某个变量放在寄存器中，大部分情况下，编译器会做出良好的判断。
+
+    for (counter = 0; counter < 10; counter++)
+    {
+        printf("%d\n", counter);
+    }
 }
 ```
 
