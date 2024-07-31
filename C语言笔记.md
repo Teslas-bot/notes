@@ -2902,6 +2902,677 @@ int main(void)
 
 ```
 
+## 指针星号的企业风格规范以及容易引发的问题
+
+```c
+int* p;		// 微软写法，int*，表明强调这个变量是一个int*(整型指针)类型的变量
+int *p;		// 更强调这个变量实际上是一个指针
+
+int* p, q;	// 避免一行定义多个变量
+int *p, *q;		// 非得一行定义多个指针
+int* p, * q;	// 微软一行定义多个指针的写法
+
+// 相当于
+int* p;
+int q;
+```
+
+## 野指针
+
+野指针：指向了一个无效的内存地址或是已经释放的内存地址的指针。
+
+非常危险。
+
+野指针会访问一个不可描述的内存空间，会导致不可预测的行为。
+
+野指针非常危险，程序员必须对野指针做出处理。
+
+## 空指针
+
+空指针：通常没有指向任何有效内存地址的指针。
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void)
+{
+    // 空指针，没有指向任何楼层的地址
+    uint32_t* ptr_to_floor = NULL;
+
+    // 尝试通过空指针访问数据
+    if (ptr_to_floor == NULL)
+    {
+        printf("没有指定楼层的地址！\n");
+        // shortcut 不做任何处理，即双击没有反应
+    }
+    else
+    {
+        printf("楼层的地址是: %p, 楼层号: %d\n", (void*) ptr_to_floor, *ptr_to_floor);
+    }
+
+    return 0;
+}
+```
+
+## 数组的首地址与指针的算数运算与比较运用
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void)
+{
+    // 指针的算数运算
+
+    /*********数组的首地址 **********/
+    // int
+    int numbers[] = {10 ,20 ,30, 40, 50, 60, 70, 80, 90};
+
+    int* ptr = numbers;     // &numbers[0]
+    // 数组在内存中是连续的
+    // 0 -> 0000000000009000
+    // 所以只需要一个首地址就可以找到整个数组在哪。
+
+    // 计算数组的大小
+    int size = sizeof(numbers) / sizeof(numbers[0]);
+    // sizeof(numbers) 这个部分会计算整个数组所占用的内存的大小，单位是字节。
+    // sizeof(numbers) 这个部分会返回给我一个整个数组的空间所占的大小。
+
+    printf("size = %d\n", size);
+
+    printf("数组原始数据\nnumbers[] = { ");
+    for (int i = 0; i < size; ++i)
+    {
+        printf("%d ", numbers[i]);
+    }
+    printf("}\n\n");
+
+    /**********指针的加减法 **********/
+
+    // 使用指针加法移动指针
+    // 由于ptr在声明时是一个指向int类型的指针
+    // 而int类型是占4个字节的
+    // 所以ptr在 +1 之后会向后跳 4 个字节
+    // 也就是说
+    // 指针的加法、减法移动的地址的单位取决于指针的类型
+   
+    // 此时指针将从指向数组下标为0的数据 10 变为指向数组下标为1的数据 20
+    ptr += 1;
+    
+    printf("numbers[ptr += 1] : %d\n\n", *ptr);
+
+    // 使用指针剑法回到第一个元素
+    ptr -= 1;
+
+    printf("回到第一个元素numbers[ptr -= 1] : %d\n\n", *ptr);
+
+    // 指针之间的减法，计算距离
+    int* start_ptr = &numbers[0];
+    int* end_ptr = &numbers[size - 1];
+
+    // 输出数组首位地址之家距离的字节数
+    printf("数组首尾之间的距离是: %td\n\n", end_ptr - start_ptr);
+
+    // end_ptr - start_ptr 的类型: ptrdiff_t
+    // ptrdiff_t 的类型
+    // 在32位操作系统中。这个类型一般是占4个字节: int 类型
+    // 在64位操作系统中，这个类型一般是占8个字节: long int 类型
+
+    
+    /***********  指针之间的比较 *********/
+    puts("比较指针指向的元素: ");
+    
+    if (start_ptr < end_ptr)
+    {
+        puts("start_ptr 指向的元素在 end_ptr 所指向的元素之前");
+    }
+
+    // 使用指针遍历数组
+    printf("使用指针遍历数组\n *p 外部指针遍历 {");
+    for (int* p = start_ptr; p <= end_ptr; p++)
+    {
+        printf("%d ", *p);
+    }
+    printf(" }\n\n");
+
+    // 使用指针加法逐个访问数组中的每个元素的反向顺序
+    printf("使用指针减法逐个访问数组中的每个元素的反向顺序\n*p = {");
+    for (int* p = end_ptr; p >= start_ptr; p--)
+    {
+        printf("%d ", *p);
+    }
+    printf(" }\n\n");
+
+    /********** 指针加减整数访问特定元素 **********/
+    puts("指针加简整数访问特定元素: ");
+    int offset = 3;
+    printf("第四个元素(使用加法): *（start_ptr + offset) = %d\n\n", (start_ptr + offset));
+
+    // 回退到第三个元素
+    printf("回退到第三个元素(从第四个元素开始回退) * (start_ptr + offset - 1) = %d\n\n", *(start_ptr + offset - 1));
+
+    /********** 比较两个指针 *********/
+    int* middle_ptr = &numbers[size / 2];   // 指向数组中的元素
+
+    printf("比较两个指针指向的位置:\n");
+
+    if (start_ptr < middle_ptr)
+    {
+        puts("start_ptr 指向的元素在 end_ptr 所指向的元素之前\n");
+    }
+
+    if (end_ptr > middle_ptr)
+    {
+        puts("end_ptr 指向的元素在 middle_ptr 所指向的元素之后");
+    }
+    return 0;
+}
+
+```
+
+## 数组的地址与数组的第一个元素地址（数组首地址）
+
+如果我们有一个数组`uint32_t array[] = {10, 20, 30, 40, 50, 60, 70, 80, 90}`
+
+其数组地址可表示为`&array`
+
+其数组首地址可表示为`array`
+
+二者之间的区别在哪呢？
+
+1. `&array` 表示的是整个数组的地址，对`&array` +1 -> `&array + 1` 会跳跃整个数组长度*类型长度的字节，在这个例子中就是跳跃36个字节。
+2. `array` 表示的是数组中第一个元素的地址，对`array` +1 -> `array + 1` 会跳跃类型长度的字节，在这个例子中就是跳跃4个字节。
+
+这也对应了二者的数据类型的不同
+
+1. 这个例子中，`&array` 的数据类型是 `uint32_t (*)[9]`，这个 ’9‘ 取决于数组的长度。
+2. 这个例子中，`array` 的数据类型是 `uint32_t*` 
+
+## Example——指针查找特定元素的的索引并返回
+
+```c
+#include <stdio.h>
+#include <inttypes.h>
+#include <stdbool.h>
+
+// 将目标代码写成函数
+// 查找特定元素的索引，返回是否找到，以及元素的索引
+bool find_index_of_value(const uint32_t* array, size_t size, uint32_t target_value, size_t* target_index);
+
+int main(void)
+{
+    uint32_t values[] = {10, 20, 30, 40, 50, 60, 70, 80, 90};
+
+    uint32_t target_value = 40; 
+
+    uint32_t* start_ptr = values;
+
+    size_t values_size = sizeof(values) / sizeof(values[0]);
+
+    size_t target_index = 0;
+
+    bool is_found = find_index_of_value(values, values_size, target_value, &target_index);
+
+    // bool is_found = false;
+
+    // for (size_t i = 0; i < values_size; ++i)
+    // {
+    //     if (*(start_ptr + i) == target_value)
+    //     {
+    //         // 找到目标的下标
+    //         target_index = i;
+    //         is_found = true;
+    //         break;
+    //     }
+    // }
+
+    if (is_found)
+    {
+        printf("找到了%" PRIu32 " 的索引值为: %zu", target_value, target_index);
+    }
+    else
+    {
+        printf("没有找到%" PRIu32 "的索引值", target_value);
+    }
+}
+
+bool find_index_of_value(const uint32_t* array, size_t size, uint32_t target_value, size_t* target_index)
+{
+    for (size_t i = 0; i < size; ++i)
+    {
+        if (*(array + i) == target_value)
+        {
+            *target_index = i;
+            return true;
+        }
+    }
+
+    return false;
+}
+```
+
+## Example——指针访问多维数组
+
+```c
+#include <stdio.h>
+#include <inttypes.h>
+#include <stdbool.h>
+
+int main(void)
+{
+    int matrix[2][3] = {
+        {1, 2, 3}, 
+        {4 ,5, 6}
+    };
+
+    // 一个指向长度为3的一维数组的指针
+    int(*ptr)[3] = matrix;
+
+    // int(*ptr)[3] : ptr是一个指针，它指向一个包含3个int元素的一维数组的指针
+
+    // int* ptr[3] : ptr是一个指针数组，它里面包含3个指向int类型数据的指针
+    
+    for (int i = 0; i < 2; i++)
+    {
+        for (int j = 0; j < 3; j++)
+        {
+            printf("%d ", ptr[i][j]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+
+    int numbers[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+
+    int* ptr_numbers = numbers;
+
+    for (int i = 0; i < 10; ++i)
+    {
+        printf("%d ", ptr_numbers[i]);
+    }
+}
+```
+
+## 思考：数组和指针本质是一样的
+
+通过上一个例子可以看出，对于一个名为 `numbers` 的一维数组，我们可以使用它的首地址 `number` 来声明一个指针：
+
+```c
+int numbers[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+int* ptr_numbers = numbers;
+```
+
+此时，使用 `numbers[i]` 和 `ptr_numbers[i]` 去访问数组中的元素将会得到同样的结果。
+
+```c
+for (int i = 0; i < 10; ++i)
+{
+    // printf("%d ", numbers[i]);
+    printf("%d ", ptr_numbers[i]);
+}
+```
+
+输出结果均为：
+
+```shell
+1 2 3 4 5 6 7 8 9 10
+```
+
+## 函数的值传递和地址引用传递
+
+函数的传递方式有三种：值传递、指针传递、引用传递。
+
+参考博客：
+
+1. [值传递、指针传递、引用传递：深入理解函数参数传递方式_函数 值传递 指针传递-CSDN博客](https://blog.csdn.net/Hamdh/article/details/133881214)
+2. [C语言传递指针参数的陷阱 | BraveY](https://bravey.github.io/2020-12-12-C语言传递指针参数的陷阱)
+
+```c
+#include <stdio.h>
+#include <inttypes.h>
+#include <stdbool.h>
+
+void add_ten_by_value(int32_t* value);
+
+int main(void)
+{
+    int32_t my_value = 5;
+    printf("原本的值: %" PRId32 "\n", my_value);
+
+    // 指针作为函数参数的使用
+    add_ten_by_value(&my_value);
+
+    printf("已经调用add_ten_by_value之后的值: %" PRId32 "\n", my_value);
+}
+
+void add_ten_by_value(int32_t* value)
+{
+    *value += 10;
+}
+```
+
+## Example——员工薪资系统
+
+
+
+## const int、const int *、int *cosnt、const int * const、const int &的区别
+
+一、const int
+在定义变量的时候必须初始化，否则报错。
+
+```c
+#include "stdafx.h"
+
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	const int i = 0;
+	//i = 4;             //error C3892: “i”: 不能给常量赋值
+
+	//error C2734: “k”: 如果不是外部的，则必须初始化常量对象
+	//const int k;       
+	//k = 3;             //error C3892: “k”: 不能给常量赋值
+	return 0;
+}
+
+```
+
+二、const int *
+1、声明该指针变量指向的是常量，即该指针变量的内容可以改变，但是该内容指向的内容不可改变！
+
+```c
+#include "stdafx.h"
+
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	const char *p = "Hello world!";
+	//p[3] = '3';  //error C3892: “p”: 不能给常量赋值
+	p = "Hi!";
+	return 0;
+}
+
+```
+
+2、虽然指向的内容不可改写，但是delete则是可以的。例子：
+
+```c
+	const int *p = new int[3];
+	delete []p;
+	p = nullptr;
+```
+
+因为**delete**只是告诉系统，现在p所指向的这块内存已还给自由存储区，不再被使用，可以被其他程序改写。而此时p依旧指向这块不可使用的内存，故需要对p进行清零。
+
+三、int *const
+声明该指针变量为常变量，即指针变量里面的内容不可改变，但是该内容指向的内容可以改变！
+
+```c
+#include "stdafx.h"
+
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	char *const p = "Hello world!";
+	p[3] = '3';  
+	//p = "Hi!";  error C3892: “p”: 不能给常量赋值
+	return 0;
+}
+
+```
+
+四、const int * cosnt
+声明该指针变量里面的内容不可改变，同时该内容指向的内容亦不可改变。
+
+```c
+#include "stdafx.h"
+
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	const char *const p = "Hello world!";
+	//p[3] = '3';  //error C3892: “p”: 不能给常量赋值
+	//p = "Hi!";   //error C3892: “p”: 不能给常量赋值
+	return 0;
+}
+
+```
+
+五、const int &
+在引用前面加上const，代表该引用为常引用，即被引用的对象不可改变。若是在形参中使用，则不可达到在函数里面修改变量值的目的。
+
+```c
+#include "stdafx.h"
+#include <iostream>
+using namespace std;
+
+int add (const int &a,int &k)
+{
+	//a += 7;  //error C3892: “a”: 不能给常量赋值
+	k += 8;
+	return (a+k);
+}
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	int a = 5;
+	int k = 9;
+	const int &b = a;
+	//b = 7;  //error C3892: “b”: 不能给常量赋值
+	int t = add(a,k);
+	cout<<"a = "<<a<<endl;
+	cout<<"b = "<<b<<endl;
+	cout<<"t = "<<t<<endl;
+	cin.get();
+	return 0;
+}
+
+```
+
+# 结构体
+
+## 定义和初始化
+
+```c
+#include <stdio.h>
+#include <inttypes.h>
+
+// 结构体(Structures)
+// 数据类型
+// 在单文件编程时，结构体一般定义在函数外
+// 在多文件编程时，结构体定义一般放在单独的文件中
+
+// 说白了，我们想要定义什么类型？
+// 我们定义了一个表示日期的结构体 Date
+// 其中，整个结构体包含了三个int类型的成员
+// 显示定义结构体
+typedef struct Date {
+    uint32_t day;
+    uint32_t month;
+    uint32_t year;
+} Date;
+
+// 创建结构体
+struct Person
+{
+    char name[50];
+    uint32_t age;
+    float height;
+    // ...
+};
+
+
+int main(void)
+{
+    Date today = {30, 7, 2024};
+
+    // 初始化结构体变量
+    struct Person frank = {"frank", 30, 2.83f};
+
+    // 通过.访问成员
+    printf("Today's date is: %" PRIu32 "-%" PRIu32 "-%" PRIu32 " (print by .)\n", today.year, today.month, today. day);    
+
+    // 通过指针访问成员
+    Date* date_ptr = &today;
+    printf("Today's date is %" PRIu32 "-%" PRIu32 "-%" PRIu32 " (print by ptr)\n", date_ptr->year, date_ptr->month, date_ptr->day);
+
+    printf("%s is %" PRIu32 " years old and %.2f feet tall.\n", frank.name, frank.age, frank.height);
+}
+```
+
+## 匿名结构体，函数参数为结构体
+
+```c
+#include <stdio.h>
+#include <inttypes.h>
+
+// 匿名结构体
+typedef struct {
+    char name[50];
+    uint32_t id;
+    float score;
+} Student;
+
+void print_stu(Student stu);
+
+void update_score_by_value(Student stu, float new_score);
+
+void update_score_by_ptr(Student* stu, float new_score);
+
+int main(void)
+{
+    Student stu = {"John Doe", 123, 89.5f};
+
+    puts("Before update:\n");
+
+    print_stu(stu);
+
+    update_score_by_value(stu, 100.0f);
+    
+    puts("After update by value:");
+
+    print_stu(stu);
+
+    update_score_by_ptr(&stu, 100.f);
+
+    puts("After update by ptr:");
+
+    print_stu(stu);
+}
+
+void print_stu(Student stu)
+{
+    printf("Student Name: %s\n", stu.name);
+    printf("Student ID: %" PRIu32 "\n", stu.id);
+    printf("Student Score: %.2f\n", stu.score);
+}
+
+void update_score_by_value(Student stu, float new_score)
+{
+    stu.score = new_score;
+}
+
+void update_score_by_ptr(Student* stu, float new_score)
+{
+    stu->score = new_score;
+}
+```
+
+## 值语义初始化结构体变量
+
+[Value semantics - Wikipedia](https://en.wikipedia.org/wiki/Value_semantics)
+
+## 结构体数组
+
+```c
+#include <stdio.h>
+
+// 匿名结构体
+typedef struct {
+    int x;
+    int y;
+} Point;
+int main(void)
+{
+    Point point_array[3] = {
+        {1, 2},
+        {2, 3},
+        {12, 10}
+    };
+}
+```
+
+## 结构体嵌套
+
+```c
+#include <stdio.h>
+
+typedef struct
+{
+    char street[50];
+    char city[50];
+    char country[50];
+} Address;
+
+typedef struct
+{
+    char name[50];
+    int age;
+    Address address;
+} Person;
+
+int main(void)
+{
+    Person frank = {
+        "Frank",
+        190,
+        {"SAIOJOIFIS ST", "SSXXXXXX", "CANDA"}
+    };
+    
+    Person* ptr = &frank;
+    
+    printf("Name: %s\n", frank.name);
+    printf("Address: %s, %s, %s\n", frank.address.street, frank.address.city, frank.address.country);
+    printf("Address: %s, %s, %s\n", ptr->address.street, ptr->address,city, ptr->address.country);
+}
+```
+
+# 枚举
+
+```c
+#include <stdio.h>
+
+typedef enum
+{
+    MONDAY,     // 0
+    TUESDAY,    // 1
+    WEDNESDAY,  // 2
+    THURSDAY,   // 3
+    FRIDAY,     // 4
+    SATURDAY,   // 5
+    SUNDAY      // 6
+} Weekday;
+
+int main(void)
+{
+    Weekday day = SATURDAY;
+
+    printf("%d\n", day);
+    printf("%d\n", FRIDAY);
+}
+```
+
+# 字符串 TODO
+
+
+
+# 输入输出 TODO
+
+
+
+# math.h TODO
+
 
 
 # 表驱动法
