@@ -3370,6 +3370,242 @@ int _tmain(int argc, _TCHAR* argv[])
 
 ```
 
+# 动态内存分配
+
+## 计算机操作系统内存管理机制
+
+计算机操作系统的内存有两种不同的存储区域。分别是栈内存和堆内存。
+
+二者的不同点为：
+
+* 分配机制
+
+* 生命周期
+
+* 访问速度
+
+* 用途区分
+
+
+
+1. 栈内存(Stack Memory)
+
+```c
+int number;	// 4bytes
+int arr[4]; // 编译的时候就是4bytes
+```
+
+* 栈内存使用自动管理机制：函数调用的时候，局部变量会被分配在栈上，当函数返回时，局部变量全部销毁释放。
+* 速度快。栈内存的分配和访问速度通常要比堆内存快，但是它是一种线性的数据结构。
+* 大小有限制。栈的大小，在程序启动那一刹那就意味着已经确定，改动近乎成为了笑话。如果栈的内存空间被耗尽。这种情况叫做栈溢出，意味着程序崩溃。
+* 函数的局部变量，函数参数，函数调用的返回地址
+* 栈主要用于存储线程所需要的临时的变量。
+
+2. 堆内存(Heap Memory)
+
+* 堆内存使用动态管理机制：程序员手动管理。`malloc`, `calloc`, `realloc`, `free` 等函数进行管理。
+* 速度相较于栈有点慢。它需要在内存中寻找足够大的连续空间块。
+* 大小灵活。堆的大小通常受到可用系统内存的限制，而非栈本身的限制。
+* 堆用于存储需要动态内存分配的全局变量
+
+## malloc函数动态内存分配的使用和释放 
+
+```c
+#include <stdio.h>
+#include <errno.h>
+#include <stdlib.h>
+
+void demo (void);
+
+int main(void)
+{
+    demo();
+}
+void demo (void)
+{
+    // 以往传统的方式
+    // char buffer[1000]
+    // 1. 灵活性低，整个程序走下来，都依赖于预设编译前的大小
+    // 2. 内存浪费与安全隐患
+    // 3. 应用受限
+
+    // 静态数组的声明和初始化
+    // 编译的时候就确定了，整个数组的大小和生命周期联通作用域，都一起决定了。
+    int static_arr[5] = {1, 2, 3, 4, 5};
+
+    printf("静态数组的内容: \n");
+
+    for (size_t i = 0; i < 5; i++)
+    {
+        printf("%d ", static_arr[i]);
+    }
+    printf("\n");
+
+    // 动态内存分配 int arr[5];
+    int* dynamic_arr = (int*)malloc(5 * sizeof(int));
+
+    // 如果动态内存分配失败
+    if (dynamic_arr == NULL)
+    {
+        perror("动态数组分配失败");
+        exit(EXIT_FAILURE);
+    }
+
+    // 初始化
+    for (size_t i = 0; i < 5; i++)
+    {
+        dynamic_arr[i] = (i + 1) * 10;
+    }
+
+    puts("动态数组的内容");
+    for (size_t i = 0; i < 5; i++)
+    {
+        printf("%d ", dynamic_arr[i]);
+    }
+    printf("\n");
+    
+
+    // void* 指针在C语言中用于泛型编程
+
+    // 堆内存要手动释放，因为不是简单的局部变量那么简单，局部变量会在函数执行完之后自动释放，而堆不会。
+    free(dynamic_arr);
+}
+```
+
+## realloc函数在原有的动态内存上增加内存
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+
+void printBudgets(double* budgets, int size);
+
+int main(void)
+{
+    // 动态调整部门预算列表
+    // 初始的预算项数
+    int size = 3;
+
+    double* budgets = (double*)malloc(size * sizeof(double));
+    if (budgets == NULL)
+    {
+        perror("Failed to allocate initial budgets");
+        return EXIT_FAILURE;
+    }
+
+    // 假设的初始预算分配
+    budgets[0] = 10000;
+    budgets[1] = 15000;
+    budgets[2] = 12000;
+
+    printBudgets(budgets, size);
+
+    // 新的一年，需要增加新的预算项
+    int newSize = 5;
+    double* newBudgets = (double*)realloc(budgets, newSize * sizeof(double));
+    if (newBudgets == NULL)
+    {
+        perror("Failed to rallocate budgets");
+        free(budgets);
+        return EXIT_FAILURE;
+    }
+    
+    // 更新指针
+    budgets = newBudgets;
+
+    budgets[3] = 20000;
+    budgets[4] = 18000;
+
+    printBudgets(budgets, newSize);
+
+
+    // 由于这里是使用realloc函数申请的，新旧是链接在一起的，所以只需要释放一个就可以了
+    // 如果是使用malloc申请的，则两个都需要释放
+    free(budgets);
+
+    return EXIT_SUCCESS;
+}
+
+void printBudgets(double* budgets, int size)
+{
+    printf("Current budgets:\n");
+    for (size_t i = 0; i < size; i++)
+    {
+        printf("Department %zd: $%.2f\n", i + 1, budgets[i]);
+    }
+}
+```
+
+## Example——malloc与struct联合使用
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct
+{
+    char* name;
+    int level;
+    int hp;
+} Character;
+
+Character* create_character(const* name, int level, int hp);
+
+void free_character(Character* character);
+
+int main(void)
+{
+    Character* hero = create_character("hero", 1, 100);
+    if (hero == NULL)
+    {
+        return EXIT_FAILURE;
+    }
+
+    free_character(hero);
+
+}
+
+Character* create_character(const* name, int level, int hp)
+{
+    Character* new_character = (Character*)(sizeof(Character));
+
+    if (new_character == NULL)
+    {
+        perror("Failed to allocate memory for new character");
+        return NULL;
+    }
+
+    new_character->name = (char*)malloc(strlen(name) + 1);
+
+    if (new_character->name == NULL)
+    {
+        perror("Failed to allocater memory for new character name");
+        // 防止内存泄漏
+        free(new_character);
+        return NULL;
+    }
+
+    strcpy(new_character->name, strlen(name) + 1, name);
+
+    new_character->level = level;
+    new_character->hp = hp;
+
+    return new_character;
+}
+
+void free_character(Character* character)
+{
+    if (character != NULL)
+    {
+        // 先释放名字字符串占用的内存
+        free(character->name);
+        free(character);
+    }
+}
+```
+
+
+
 # 结构体
 
 ## 定义和初始化
@@ -3569,7 +3805,76 @@ int main(void)
 
 # 输入输出 TODO
 
+## 缓冲区
 
+输入流的数据首先被暂存到一个叫做缓冲区的内存区域。这样可以加快读写的效率。
+
+## 标准输入 stdin
+
+键盘输入
+
+## 标准输出 stdout
+
+printf()
+
+puts()
+
+## scanf() 的返回值
+
+```c
+#include <stdio.h>
+
+int main(void)
+{
+    // scanf
+    int number;
+    int result;
+
+    puts("Enter an integer: ");
+
+    result = scanf("%d, &number");
+
+    if (result == 1)
+    {
+        printf("You entered the integer: %d\n", number);
+    }
+    else if (result == EOF)
+    {
+        // End of file  
+        // In most of systems, it's -1. For example: in Windows.
+        // 专门用来指示文件读取或输入操作已经达到了数据源的末尾
+        printf("An error occured or end of file was reached.\n");
+        return 1;
+    }
+    else
+    {
+        printf("Invalid input for integer.\n");
+        return 1;
+    }
+}
+```
+
+## stream流概述
+
+1. 文件流
+   * 位于磁盘上
+   * 用于读取和写入在磁盘上的文件
+2. 标准I/O流
+   * stdin: 默认连接到键盘用于程序输入
+   * stdout: 默认连接到控制台或者是屏幕，用于程序输出
+   * stderr: 默认也连接到控制台或屏幕，专门输出错误信息和警告，使得其能够被区分开来或者是重定向到不同的目的地。
+3. 管道流
+   * 用于进程之间的通信(IPC)， 允许一个进程的输出成为另一个进程的输入。`popen()`;
+4. 内存流
+   * 允许你将流与内存缓冲区关联，使得你可以向内存中读写数据，就像操作文件一样。POSIX->fmemopen
+5. 网络流
+   * 套接字(Sockets)
+6. 设备流
+   * 特殊文件或者是设备。例如：打印机。
+
+FILE* stream;
+
+使用这种方式可以操作上述六种流。
 
 # math.h TODO
 
