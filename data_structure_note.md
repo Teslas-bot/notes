@@ -1512,3 +1512,169 @@ bool isQEmpty(Queue *queue)
 
 - Level Order Traversal is mainly used as Breadth First Search to search or process nodes level-by-level.
 - Level Order traversal is also used for [Tree Serialization and Deserialization ](https://www.geeksforgeeks.org/serialize-deserialize-binary-tree/).
+
+# 10-0.Graph
+
+图常被用于处理复杂关系的时候，如：
+
+* 人物关系网
+* 旅行的 行程安排
+
+在[计算机科学](https://zh.wikipedia.org/wiki/计算机科学)中，**图**（英语：graph）是一种[抽象数据类型](https://zh.wikipedia.org/wiki/抽象數據類型)，用于实现[数学](https://zh.wikipedia.org/wiki/数学)中[图论](https://zh.wikipedia.org/wiki/图论)的[无向图](https://zh.wikipedia.org/wiki/图_(数学))和[有向图](https://zh.wikipedia.org/wiki/有向图)的概念。
+
+图的数据结构包含一个有限（可能是可变的）的[集合](https://zh.wikipedia.org/wiki/集合_(计算机科学))作为**节点**集合，以及一个无序对（对应无向图）或有序对（对应有向图）的集合作为**边**（有向图中也称作**弧**）的集合。节点可以是图结构的一部分，也可以是用整数下标或[引用](https://zh.wikipedia.org/wiki/引用_(程序设计))表示的外部实体。
+
+图的数据结构还可能包含和每条边相关联的数值（edge value），例如一个标号或一个数值（即权重，weight；表示花费、容量、长度等）。
+
+![undefined](https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Directed.svg/1920px-Directed.svg.png)
+
+## 图的常见数据结构
+
+- [邻接表](https://zh.wikipedia.org/wiki/邻接表)
+
+  节点存储为[记录](https://zh.wikipedia.org/wiki/记录)或[对象](https://zh.wikipedia.org/wiki/对象_(计算机科学))，且为每个节点创建一个[列表](https://zh.wikipedia.org/wiki/列表_(抽象数据类型))。这些列表可以按节点存储其余的信息；例如，若每条边也是一个对象，则将边存储到边起点的列表上，并将边的终点存储在边这个的对象本身。
+
+- [邻接矩阵](https://zh.wikipedia.org/wiki/邻接矩阵)
+
+  一个二维矩阵，其中行与列分别表示边的起点和终点。顶点上的值存储在外部。矩阵中可以存储边的值。
+
+- [关联矩阵](https://zh.wikipedia.org/w/index.php?title=关联矩阵&action=edit&redlink=1)
+
+  一个二维矩阵，行表示顶点，列表示边。矩阵中的数值用于标识顶点和边的关系（是起点、是终点、不在这条边上等）。
+
+下表给出了在图上进行各种操作的[复杂度](https://zh.wikipedia.org/wiki/计算复杂性理论)。其中，用|*V*|表示节点数量，|*E*|表示边的数量。同时假设存储的信息是边上对应的值，如果没有对应值则存储∞。
+
+|                                                              |                            邻接表                            |                           邻接矩阵                           |                           关联矩阵                           |
+| :----------------------------------------------------------- | :----------------------------------------------------------: | :----------------------------------------------------------: | :----------------------------------------------------------: |
+| 空间复杂度 [[7\]](https://zh.wikipedia.org/wiki/图_(数据结构)#cite_note-FOOTNOTECormenLeisersonRivestStein2001589-591-7) |                                                              |                                                              |                                                              |
+| 存储一张图                                                   | ![{\displaystyle O(\|V\|+\|E\|)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/a7cf317fbe3965ae3164f28c1f6858696adb23f4) | ![{\displaystyle O(\|V\|^{2})}](https://wikimedia.org/api/rest_v1/media/math/render/svg/e1e99764e23be92b694aef042c6460ff921357e3) | ![{\displaystyle O(\|V\|\cdot \|E\|)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/93b30ae8ec84ab14193f0b6a384c39e796c80545) |
+| 时间复杂度 [[8\]](https://zh.wikipedia.org/wiki/图_(数据结构)#cite_note-FOOTNOTEGoodrichTamassia2015§13.1.3-8) |                                                              |                                                              |                                                              |
+| 添加节点                                                     | ![{\displaystyle O(1)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/e66384bc40452c5452f33563fe0e27e803b0cc21) | ![{\displaystyle O(\|V\|^{2})}](https://wikimedia.org/api/rest_v1/media/math/render/svg/e1e99764e23be92b694aef042c6460ff921357e3) | ![{\displaystyle O(\|V\|\cdot \|E\|)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/93b30ae8ec84ab14193f0b6a384c39e796c80545) |
+| 添加边                                                       | ![{\displaystyle O(1)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/e66384bc40452c5452f33563fe0e27e803b0cc21) | ![{\displaystyle O(1)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/e66384bc40452c5452f33563fe0e27e803b0cc21) | ![{\displaystyle O(\|V\|\cdot \|E\|)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/93b30ae8ec84ab14193f0b6a384c39e796c80545) |
+| 移除节点                                                     | ![{\displaystyle O(\|E\|)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/976fe7f1e011d0dcdb3d6163754c877aaad5187f) | ![{\displaystyle O(\|V\|^{2})}](https://wikimedia.org/api/rest_v1/media/math/render/svg/e1e99764e23be92b694aef042c6460ff921357e3) | ![{\displaystyle O(\|V\|\cdot \|E\|)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/93b30ae8ec84ab14193f0b6a384c39e796c80545) |
+| 移除边                                                       | ![{\displaystyle O(\|V\|)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/3486d00c2ed0f7eb1db550af8f239ad68241a6c5) | ![{\displaystyle O(1)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/e66384bc40452c5452f33563fe0e27e803b0cc21) | ![{\displaystyle O(\|V\|\cdot \|E\|)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/93b30ae8ec84ab14193f0b6a384c39e796c80545) |
+| 检查节点*x*和*y*是否邻接（假设已知两个节点对应的存储位置）   | ![{\displaystyle O(\|V\|)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/3486d00c2ed0f7eb1db550af8f239ad68241a6c5) | ![{\displaystyle O(1)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/e66384bc40452c5452f33563fe0e27e803b0cc21) | ![{\displaystyle O(\|E\|)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/976fe7f1e011d0dcdb3d6163754c877aaad5187f) |
+| 注释                                                         |       移除节点或边速度较慢，因为需要找到相连的边或节点       |           增减节点速度较慢，因为需要修改矩阵的大小           |         增减节点或边速度较慢，因为需要修改矩阵的大小         |
+
+## 图的分类
+
+- **无向图**：边没有方向，表示两个顶点之间的双向关系。即，如果有一条边连接顶点A和顶点B，则可以从A到B，也可以从B到A。
+- **有向图**：边有方向，表示一个顶点指向另一个顶点。即，如果有一条边从A指向B，则只能从A到B，而不能从B到A。
+- **加权图**：边上附带权重（或成本），表示两个顶点之间的关系强度或距离。
+- **非加权图**：边没有权重，所有边的关系都是相同的。
+- **简单图**：图中没有重复的边和自环（一个顶点与自身连接的边）。
+- **多重图**：允许有多个边连接同一对顶点。
+
+## 图的遍历
+
+图的遍历是对图中每个顶点进行访问的过程。常用的遍历算法包括：
+
+- **深度优先搜索（DFS, Depth First Search）**：
+  - 从一个顶点开始，尽可能深地搜索下去，直到无法继续，然后回溯。
+  - 可以使用递归或栈实现。
+- **广度优先搜索（BFS, Breadth First Search）**：
+  - 从一个顶点开始，先访问其所有邻接顶点，再逐层向外扩展访问。
+  - 通常使用队列实现。
+
+### 应用场景
+
+- **网络分析**：图用于表示计算机网络、社交网络等。
+- **路径寻找**：如最短路径算法（Dijkstra算法、Bellman-Ford算法等）。
+- **图形处理**：图用于模型化图形和几何形状。
+- **推荐系统**：用户和物品之间的关系可以用图来表示。
+
+### 常用算法
+
+- **最短路径算法**：Dijkstra算法、Bellman-Ford算法、Floyd-Warshall算法等。
+- **最小生成树**：Kruskal算法、Prim算法等。
+- **图的连通性**：通过DFS或BFS判断图的连通分支等。
+
+### 特殊类型的图
+
+- **树（Tree）**：一种特殊的图，没有回路且是连通的。
+- **无环图（DAG, Directed Acyclic Graph）**：有向图，没有环路。
+
+## 邻接矩阵和邻接表实现图的方法分析
+
+参考博客：[有向图的邻接矩阵和邻接表画法-CSDN博客](https://blog.csdn.net/qq_44667165/article/details/111841832)
+
+## 邻接表实现有向图(Code)
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_NODES 10
+
+typedef struct Node
+{
+    int name;
+    struct Node *next;
+} Node;
+
+typedef struct Graph
+{
+    Node* adjList[MAX_NODES];
+} Graph;
+
+Node* createNode(int name)
+{
+    Node* node = (Node*)malloc(sizeof(Node));
+    node->name = name;
+}
+
+Graph* createGraph()
+{
+    Graph* graph = (Graph*)malloc(sizeof(Graph));
+    for (size_t i = 0; i < MAX_NODES; i++)
+    {
+        graph->adjList[i] = NULL;
+    }
+}
+
+/**
+ * 有向图添加边
+ */
+void addEdge(Graph* graph, int src, int dest)
+{
+    // 讲从src到dest的有向边添加到src的邻接表对应位置的栈中
+    Node* node_dest = createNode(dest);
+    node_dest->next = graph->adjList[src];
+    graph->adjList[src] = node_dest;
+}
+
+void printGraph(Graph* graph)
+{
+    for (size_t i = 0; i < MAX_NODES; i++)
+    {
+        if (graph->adjList[i] != NULL){
+            printf("%d: ", i);
+
+            Node* temp_node = graph->adjList[i];
+            while(temp_node != NULL)
+            {
+                printf("%d, ", temp_node->name);
+                temp_node = temp_node->next;
+            }
+    
+            printf("\n");
+        }
+    }
+}
+
+int main(void)
+{
+    Graph* graph = createGraph();
+
+    addEdge(graph, 0, 1);
+    addEdge(graph, 0, 2);
+    addEdge(graph, 0, 3);
+    addEdge(graph, 1, 3);
+    addEdge(graph, 2, 3);
+    addEdge(graph, 1, 0);
+
+    printGraph(graph);
+}
+```
+
