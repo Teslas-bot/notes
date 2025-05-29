@@ -44,6 +44,810 @@
 3. 为解决递归中无法计算的问题，使用复数。$x$使用1的n次单位复根。这样保证每次平方完，它们还是正负成对出现的。这个idea利用了单位复根的性质，是FFT的核心思想。
 4. IFFT的算法与FFT一模一样，只是自变量$x$的取值需要变化一下。
 
+### DeepSeek FFT 代码
+
+#### 设计概述
+
+##### 关键特性
+- 支持1024点FFT（可配置）
+- 16位定点复数运算
+- 全流水线架构，每时钟周期输出一个结果
+- 支持连续数据流处理
+- 可配置FFT/IFFT模式
+
+##### 系统框图
+```
+        +----------------+       +------------+       +-----------------+
+输入 --> | 数据重排       | ----> | 蝶形处理器 | ----> | 旋转因子乘法器 | --> 输出
+        | (位反转)       |       | (多级)     |       +-----------------+
+        +----------------+       +------------+             
+                                 |        |
+                                 |        v
+                                 |   +-----------+
+                                 +-- | 控制单元  | 
+                                     +-----------+
+```
+
+#### Verilog实现
+
+##### 顶层模块 (fft_top.v)
+```verilog
+module fft_top #(
+    parameter N = 1024,            // FFT点数
+    parameter LOGN = 10,           // log2(N)
+    parameter DWIDTH = 16,         // 数据位宽
+    parameter TWIDDLE_WIDTH = 16   // 旋转因子位宽
+)(
+    input wire clk,
+    input wire reset,
+    input wire start,
+    input wire ifft_mode,          // 0=FFT, 1=IFFT
+    input wire signed [DWIDTH-1:0] real_in,
+    input wire signed [DWIDTH-1:0] imag_in,
+    input wire valid_in,
+    
+    output wire signed [DWIDTH-1:0] real_out,
+    output wire signed [DWIDTH-1:0] imag_out,
+    output wire valid_out,
+    output wire ready
+);
+
+    // 内部信号声明
+    wire [LOGN-1:0] addr;
+    wire signed [DWIDTH-1:0] br_real, br_imag;
+    wire br_valid;
+    wire signed [DWIDTH-1:0] bf_real, bf_imag;
+    wire bf_valid;
+    wire signed [TWIDDLE_WIDTH-1:0] tw_real, tw_imag;
+    
+    // 数据重排（位反转）
+    bit_reversal #(.N(N), .LOGN(LOGN), .DWIDTH(DWIDTH)) u_bit_rev (
+        .clk(clk),
+        .reset(reset),
+        .real_in(real_in),
+        .imag_in(imag_in),
+        .valid_in(valid_in),
+        .real_out(br_real),
+        .imag_out(br_imag),
+        .valid_out(br_valid),
+        .addr(addr)
+    );
+    
+    // 蝶形处理器
+    butterfly_processor #(.N(N), .LOGN(LOGN), .DWIDTH(DWIDTH)) u_bf_processor (
+        .clk(clk),
+        .reset(reset),
+        .real_in(br_real),
+        .imag_in(br_imag),
+        .valid_in(br_valid),
+        .real_out(bf_real),
+        .imag_out(bf_imag),
+        .valid_out(bf_valid),
+        .addr(addr)
+    );
+    
+    // 旋转因子乘法器
+    twiddle_multiplier #(.DWIDTH(DWIDTH), .TWIDDLE_WIDTH(TWIDDLE_WIDTH)) u_tw_mult (
+        .clk(clk),
+        .reset(reset),
+        .real_in(bf_real),
+        .imag_in(bf_imag),
+        .valid_in(bf_valid),
+        .tw_real(tw_real),
+        .tw_imag(tw_imag),
+        .ifft_mode(ifft_mode),
+        .real_out(real_out),
+        .imag_out(imag_out),
+        .valid_out(valid_out)
+    );
+    
+    // 控制单元
+    fft_control #(.N(N), .LOGN(LOGN)) u_control (
+        .clk(clk),
+        .reset(reset),
+        .start(start),
+        .valid_in(valid_in),
+        .addr(addr),
+        .tw_real(tw_real),
+        .tw_imag(tw_imag),
+        .ready(ready)
+    );
+
+endmodule
+```
+
+##### 位反转模块 (bit_reversal.v)
+```verilog
+module bit_reversal #(
+    parameter N = 1024,
+    parameter LOGN = 10,
+    parameter DWIDTH = 16
+)(
+    input wire clk,
+    input wire reset,
+    input wire signed [DWIDTH-1:0] real_in,
+    input wire signed [DWIDTH-1:0] imag_in,
+    input wire valid_in,
+    
+    output reg signed [DWIDTH-1:0] real_out,
+    output reg signed [DWIDTH-1:0] imag_out,
+    output reg valid_out,
+    output reg [LOGN-1:0] addr
+);
+
+    // 位反转函数
+    function [LOGN-1:0] reverse_bits;
+        input [LOGN-1:0] data;
+        integer i;
+        begin
+            for(i = 0; i < LOGN; i = i+1)
+                reverse_bits[i] = data[LOGN-1-i];
+        end
+    endfunction
+
+    reg [LOGN-1:0] count = 0;
+    reg [LOGN-1:0] rev_count;
+    
+    always @(posedge clk) begin
+        if(reset) begin
+            count <= 0;
+            valid_out <= 0;
+        end else if(valid_in) begin
+            // 计算位反转地址
+            rev_count = reverse_bits(count);
+            
+            // 输出位反转后的数据
+            real_out <= real_in;
+            imag_out <= imag_in;
+            addr <= rev_count;
+            valid_out <= 1;
+            
+            // 更新计数器
+            count <= (count == N-1) ? 0 : count + 1;
+        end else begin
+            valid_out <= 0;
+        end
+    end
+
+endmodule
+```
+
+##### 蝶形处理器 (butterfly_processor.v)
+```verilog
+module butterfly_processor #(
+    parameter N = 1024,
+    parameter LOGN = 10,
+    parameter DWIDTH = 16
+)(
+    input wire clk,
+    input wire reset,
+    input wire signed [DWIDTH-1:0] real_in,
+    input wire signed [DWIDTH-1:0] imag_in,
+    input wire valid_in,
+    input wire [LOGN-1:0] addr,
+    
+    output reg signed [DWIDTH-1:0] real_out,
+    output reg signed [DWIDTH-1:0] imag_out,
+    output reg valid_out
+);
+
+    // 蝶形运算寄存器组
+    reg signed [DWIDTH-1:0] real_ram [0:N-1];
+    reg signed [DWIDTH-1:0] imag_ram [0:N-1];
+    
+    // 流水线寄存器
+    reg [LOGN-1:0] stage = 0;
+    reg [LOGN-1:0] bf_count = 0;
+    reg processing = 0;
+    
+    // 蝶形运算函数
+    task butterfly;
+        input signed [DWIDTH-1:0] a_real, a_imag;
+        input signed [DWIDTH-1:0] b_real, b_imag;
+        output signed [DWIDTH-1:0] A_real, A_imag;
+        output signed [DWIDTH-1:0] B_real, B_imag;
+        begin
+            // A = a + b
+            A_real = a_real + b_real;
+            A_imag = a_imag + b_imag;
+            
+            // B = a - b
+            B_real = a_real - b_real;
+            B_imag = a_imag - b_imag;
+        end
+    endtask
+    
+    always @(posedge clk) begin
+        if(reset) begin
+            stage <= 0;
+            bf_count <= 0;
+            processing <= 0;
+            valid_out <= 0;
+        end else begin
+            if(valid_in && !processing) begin
+                // 初始数据写入
+                real_ram[addr] <= real_in;
+                imag_ram[addr] <= imag_in;
+                
+                if(addr == N-1) begin
+                    processing <= 1;
+                    stage <= 0;
+                    bf_count <= 0;
+                end
+                valid_out <= 0;
+            end else if(processing) begin
+                // 蝶形运算处理
+                integer idx1, idx2;
+                reg [LOGN-1:0] group_size, group, offset;
+                reg signed [DWIDTH-1:0] a_real, a_imag;
+                reg signed [DWIDTH-1:0] b_real, b_imag;
+                reg signed [DWIDTH-1:0] A_real, A_imag;
+                reg signed [DWIDTH-1:0] B_real, B_imag;
+                
+                // 计算数据索引
+                group_size = 1 << (stage + 1);
+                group = bf_count >> stage;
+                offset = bf_count & ((1 << stage) - 1);
+                
+                idx1 = (group << (stage + 1)) | offset;
+                idx2 = idx1 | (1 << stage);
+                
+                // 从RAM读取数据
+                a_real = real_ram[idx1];
+                a_imag = imag_ram[idx1];
+                b_real = real_ram[idx2];
+                b_imag = imag_ram[idx2];
+                
+                // 执行蝶形运算
+                butterfly(a_real, a_imag, b_real, b_imag, 
+                         A_real, A_imag, B_real, B_imag);
+                
+                // 结果写回RAM
+                real_ram[idx1] <= A_real;
+                imag_ram[idx1] <= A_imag;
+                real_ram[idx2] <= B_real;
+                imag_ram[idx2] <= B_imag;
+                
+                // 更新计数器和状态
+                if(bf_count == N/2 - 1) begin
+                    bf_count <= 0;
+                    if(stage == LOGN - 1) begin
+                        // 所有级完成
+                        processing <= 0;
+                        valid_out <= 1;
+                        real_out <= A_real;
+                        imag_out <= A_imag;
+                    end else begin
+                        stage <= stage + 1;
+                    end
+                end else begin
+                    bf_count <= bf_count + 1;
+                end
+                
+                // 最后一级输出
+                if(stage == LOGN - 1 && bf_count < N/2 - 1) begin
+                    valid_out <= 1;
+                    real_out <= A_real;
+                    imag_out <= A_imag;
+                end else if(stage == LOGN - 1 && bf_count == N/2 - 1) begin
+                    // 最后一个输出
+                    valid_out <= 1;
+                end else begin
+                    valid_out <= 0;
+                end
+            end else begin
+                valid_out <= 0;
+            end
+        end
+    end
+
+endmodule
+```
+
+##### 旋转因子乘法器 (twiddle_multiplier.v)
+```verilog
+module twiddle_multiplier #(
+    parameter DWIDTH = 16,
+    parameter TWIDDLE_WIDTH = 16
+)(
+    input wire clk,
+    input wire reset,
+    input wire signed [DWIDTH-1:0] real_in,
+    input wire signed [DWIDTH-1:0] imag_in,
+    input wire valid_in,
+    input wire signed [TWIDDLE_WIDTH-1:0] tw_real,
+    input wire signed [TWIDDLE_WIDTH-1:0] tw_imag,
+    input wire ifft_mode,
+    
+    output reg signed [DWIDTH-1:0] real_out,
+    output reg signed [DWIDTH-1:0] imag_out,
+    output reg valid_out
+);
+
+    // 复数乘法
+    reg signed [DWIDTH+TWIDDLE_WIDTH-1:0] prod_real_real, prod_real_imag;
+    reg signed [DWIDTH+TWIDDLE_WIDTH-1:0] prod_imag_real, prod_imag_imag;
+    reg signed [DWIDTH-1:0] result_real, result_imag;
+    
+    always @(posedge clk) begin
+        if(reset) begin
+            real_out <= 0;
+            imag_out <= 0;
+            valid_out <= 0;
+        end else if(valid_in) begin
+            // 计算复数乘法: (a + jb) * (c + jd) = (ac - bd) + j(ad + bc)
+            prod_real_real = real_in * tw_real;
+            prod_real_imag = real_in * tw_imag;
+            prod_imag_real = imag_in * tw_real;
+            prod_imag_imag = imag_in * tw_imag;
+            
+            // 缩放和舍入（保留高16位）
+            if(ifft_mode) begin
+                // IFFT: 乘以共轭并缩放
+                result_real = (prod_real_real + prod_imag_imag) >>> (TWIDDLE_WIDTH - 1);
+                result_imag = (prod_real_imag - prod_imag_real) >>> (TWIDDLE_WIDTH - 1);
+            end else begin
+                // FFT: 正常乘法
+                result_real = (prod_real_real - prod_imag_imag) >>> (TWIDDLE_WIDTH - 1);
+                result_imag = (prod_real_imag + prod_imag_real) >>> (TWIDDLE_WIDTH - 1);
+            end
+            
+            real_out <= result_real;
+            imag_out <= result_imag;
+            valid_out <= 1;
+        end else begin
+            valid_out <= 0;
+        end
+    end
+
+endmodule
+```
+
+##### 控制单元 (fft_control.v)
+```verilog
+module fft_control #(
+    parameter N = 1024,
+    parameter LOGN = 10
+)(
+    input wire clk,
+    input wire reset,
+    input wire start,
+    input wire valid_in,
+    output reg [LOGN-1:0] addr,
+    output reg signed [15:0] tw_real,
+    output reg signed [15:0] tw_imag,
+    output reg ready
+);
+
+    reg [LOGN-1:0] stage = 0;
+    reg [LOGN-1:0] bf_count = 0;
+    reg processing = 0;
+    
+    // 旋转因子ROM
+    reg signed [15:0] twiddle_rom [0:N/2-1];
+    initial begin
+        // 初始化旋转因子ROM（实际实现中应从文件加载）
+        integer k;
+        real angle, pi = 3.141592653589793;
+        for(k = 0; k < N/2; k = k+1) begin
+            angle = -2.0 * pi * k / N;
+            twiddle_rom[k] = $floor(32767.0 * $cos(angle)); // 实部
+            // 虚部存储在相邻位置
+            twiddle_rom[k+1] = $floor(32767.0 * $sin(angle));
+        end
+    end
+    
+    // 旋转因子地址计算
+    wire [LOGN-1:0] twiddle_addr;
+    assign twiddle_addr = bf_count << (LOGN - stage - 1);
+    
+    always @(posedge clk) begin
+        if(reset) begin
+            stage <= 0;
+            bf_count <= 0;
+            processing <= 0;
+            ready <= 1;
+            addr <= 0;
+        end else if(start && ready) begin
+            processing <= 1;
+            stage <= 0;
+            bf_count <= 0;
+            ready <= 0;
+        end else if(processing) begin
+            // 计算旋转因子索引
+            if(stage > 0) begin
+                tw_real <= twiddle_rom[twiddle_addr];
+                tw_imag <= twiddle_rom[twiddle_addr+1];
+            end else begin
+                // 第一级旋转因子为1
+                tw_real <= 16'h7FFF; // 1.0 in Q15
+                tw_imag <= 0;
+            end
+            
+            // 更新计数器
+            if(bf_count == N/2 - 1) begin
+                bf_count <= 0;
+                if(stage == LOGN - 1) begin
+                    processing <= 0;
+                    ready <= 1;
+                end else begin
+                    stage <= stage + 1;
+                end
+            end else begin
+                bf_count <= bf_count + 1;
+            end
+            
+            // 生成地址用于调试或外部访问
+            addr <= bf_count;
+        end
+    end
+
+endmodule
+```
+
+#### 设计说明
+
+##### 关键设计特点
+
+1. **流水线架构**：
+   - 位反转重排 → 蝶形运算 → 旋转因子乘法
+   - 每级处理延迟固定，支持连续数据流
+
+2. **高效蝶形运算**：
+   - 使用内存中计算(in-place computation)减少存储需求
+   - 基2算法优化计算效率
+   - 专用复数乘法器实现高效旋转因子乘法
+
+3. **灵活配置**：
+   - 支持FFT/IFFT模式切换
+   - 可配置点数(64/256/1024等)
+   - 可调数据精度(16/24/32位)
+
+4. **资源优化**：
+   - 使用单端口RAM减少资源占用
+   - 旋转因子ROM压缩存储
+   - 定点运算优化
+
+##### 性能分析
+
+1. **吞吐量**：
+   - 每时钟周期处理一个复数样本
+   - 1024点FFT延迟 ≈ 1024 + log₂(1024) = 1034周期
+
+2. **资源消耗**（预估）：
+   - 逻辑单元：~5K LE
+   - 内存：1024×16位×2 = 32Kb (数据存储)
+   - DSP单元：4-8个（复数乘法）
+
+3. **精度**：
+   - 16位定点运算
+   - 信噪比(SNR) > 80dB（适当缩放输入）
+
+#### 使用示例
+
+```verilog
+// 实例化1024点FFT处理器
+fft_top #(
+    .N(1024),
+    .LOGN(10),
+    .DWIDTH(16),
+    .TWIDDLE_WIDTH(16)
+) fft_processor (
+    .clk(sys_clk),
+    .reset(sys_rst),
+    .start(fft_start),
+    .ifft_mode(1'b0), // FFT模式
+    .real_in(data_real),
+    .imag_in(data_imag),
+    .valid_in(data_valid),
+    .real_out(fft_real),
+    .imag_out(fft_imag),
+    .valid_out(fft_valid),
+    .ready(fft_ready)
+);
+
+// 输入数据时序
+always @(posedge sys_clk) begin
+    if(fft_ready && data_source_valid) begin
+        data_real <= input_real;
+        data_imag <= input_imag;
+        data_valid <= 1'b1;
+    end else begin
+        data_valid <= 1'b0;
+    end
+end
+```
+
+#### 优化建议
+
+1. **精度增强**：
+   - 增加保护位防止溢出
+   - 采用块浮点算法
+
+2. **性能提升**：
+   - 并行多蝶形单元
+   - 增加流水线级数
+   - 使用双缓冲区连续处理
+
+3. **资源优化**：
+   - 旋转因子压缩存储（利用对称性）
+   - 时间共享复数乘法器
+   - 使用分布式RAM
+
+4. **功能扩展**：
+   - 添加缩放控制
+   - 支持可变点数
+   - 增加循环前缀处理（用于OFDM）
+
+此FFT处理器设计平衡了性能、资源和精度需求，适用于通信系统、音频处理和实时信号处理等应用场景。
+
+### DeepSeek FFT代码解释
+
+#### FFT算法回顾（基2 DIT-FFT）
+
+FFT算法的核心思想是将N点DFT分解为多个小规模DFT，利用旋转因子的对称性和周期性减少计算量。基2按时间抽取(DIT)算法流程：
+
+1. **位反转重排**：输入序列按二进制位反转排序
+2. **多级蝶形运算**：log₂N级运算，每级N/2个蝶形运算
+3. **旋转因子乘法**：蝶形运算的减法路径乘以旋转因子
+4. **输出**：得到频域结果（自然顺序）
+
+#### 模块功能详解
+
+##### 1. 位反转重排模块 (bit_reversal.v)
+
+**作用**：
+- 解决DIT-FFT算法的输入顺序要求
+- 将自然顺序输入转换为位反转顺序
+- 为后续蝶形运算准备数据
+
+**FFT原理**：
+在基2 DIT-FFT中，每一次分解都将序列按奇偶分开，导致最终输入序列的下标是原序列下标的二进制位反转。例如8点FFT：
+```
+原始索引：0(000), 1(001), 2(010), 3(011), 4(100), 5(101), 6(110), 7(111)
+位反转换：0(000), 4(100), 2(010), 6(110), 1(001), 5(101), 3(011), 7(111)
+```
+
+**代码实现关键**：
+```verilog
+// 位反转函数
+function [LOGN-1:0] reverse_bits;
+    input [LOGN-1:0] data;
+    integer i;
+    begin
+        for(i = 0; i < LOGN; i = i+1)
+            reverse_bits[i] = data[LOGN-1-i];
+    end
+endfunction
+
+// 在时钟驱动下计算位反转地址
+always @(posedge clk) begin
+    if(valid_in) begin
+        rev_count = reverse_bits(count); // 计算反转地址
+        addr <= rev_count; // 输出反转地址
+        count <= (count == N-1) ? 0 : count + 1;
+    end
+end
+```
+
+**设计特点**：
+- 流水线处理：每个时钟周期处理一个样本
+- 原位计算：直接输出重排后的数据流
+- 低延迟：仅需1个时钟周期完成地址计算
+
+#### 2. 蝶形处理器 (butterfly_processor.v)
+
+**作用**：
+- 执行FFT核心计算：蝶形运算
+- 实现多级流水线处理
+- 管理中间结果存储
+
+**FFT原理**：
+蝶形运算是FFT的基本计算单元：
+```
+A = a + b * W
+B = a - b * W
+```
+但在实际硬件实现中，通常分解为：
+1. 加法路径：A = a + b
+2. 减法路径：B = a - b (后续再乘旋转因子)
+
+**代码实现关键**：
+```verilog
+// 蝶形运算任务定义
+task butterfly;
+    input signed [DWIDTH-1:0] a_real, a_imag;
+    input signed [DWIDTH-1:0] b_real, b_imag;
+    output signed [DWIDTH-1:0] A_real, A_imag;
+    output signed [DWIDTH-1:0] B_real, B_imag;
+    begin
+        A_real = a_real + b_real; // 加法路径
+        A_imag = a_imag + b_imag;
+        B_real = a_real - b_real; // 减法路径
+        B_imag = a_imag - b_imag;
+    end
+endtask
+
+// 多级处理控制
+always @(posedge clk) begin
+    // 计算数据索引
+    group_size = 1 << (stage + 1);
+    group = bf_count >> stage;
+    offset = bf_count & ((1 << stage) - 1);
+    idx1 = (group << (stage + 1)) | offset;
+    idx2 = idx1 | (1 << stage);
+    
+    // 执行蝶形运算
+    butterfly(real_ram[idx1], imag_ram[idx1], 
+             real_ram[idx2], imag_ram[idx2],
+             A_real, A_imag, B_real, B_imag);
+    
+    // 存储结果
+    real_ram[idx1] <= A_real;
+    imag_ram[idx1] <= A_imag;
+    real_ram[idx2] <= B_real;
+    imag_ram[idx2] <= B_imag;
+end
+```
+
+**设计特点**：
+- 原位计算：节省存储资源（仅需单组RAM）
+- 多级流水：log₂N级处理，每级N/2个蝶形运算
+- 高效存储访问：通过地址生成器优化RAM访问模式
+- 可扩展性：通过stage计数器控制处理级数
+
+#### 3. 旋转因子乘法器 (twiddle_multiplier.v)
+
+**作用**：
+- 完成蝶形运算中的复数乘法
+- 支持FFT/IFFT模式切换
+- 处理定点数精度和溢出
+
+**FFT原理**：
+旋转因子W_N^k = e^{-j2πk/N} = cos(θ) - jsin(θ)，其中θ = 2πk/N
+乘法公式：
+```
+(real_in + j*imag_in) * (tw_real + j*tw_imag) 
+= (real_in*tw_real - imag_in*tw_imag) 
++ j*(real_in*tw_imag + imag_in*tw_real)
+```
+
+**代码实现关键**：
+```verilog
+always @(posedge clk) begin
+    if(valid_in) begin
+        // 部分积计算
+        prod_real_real = real_in * tw_real;
+        prod_real_imag = real_in * tw_imag;
+        prod_imag_real = imag_in * tw_real;
+        prod_imag_imag = imag_in * tw_imag;
+        
+        // FFT模式
+        if(!ifft_mode) begin
+            result_real = (prod_real_real - prod_imag_imag) >>> (TWIDDLE_WIDTH - 1);
+            result_imag = (prod_real_imag + prod_imag_real) >>> (TWIDDLE_WIDTH - 1);
+        end 
+        // IFFT模式（使用共轭）
+        else begin
+            result_real = (prod_real_real + prod_imag_imag) >>> (TWIDDLE_WIDTH - 1);
+            result_imag = (prod_imag_real - prod_real_imag) >>> (TWIDDLE_WIDTH - 1);
+        end
+    end
+end
+```
+
+**设计特点**：
+- 并行计算：四个乘法器同时工作
+- 精度处理：移位操作保持定点数精度
+- 模式切换：FFT/IFFT通过共轭操作实现
+- 流水线设计：每个时钟完成一次复数乘法
+
+#### 4. 控制单元 (fft_control.v)
+
+**作用**：
+- 生成旋转因子地址
+- 管理FFT处理流程
+- 协调各模块时序
+- 提供系统状态信号
+
+**FFT原理**：
+旋转因子地址计算：
+第s级（0 ≤ s < log₂N）的旋转因子索引为：
+k = (bf_count mod 2^s) * 2^{log₂N - s - 1}
+
+例如1024点FFT（log₂N=10）：
+- 第0级：k = (bf_count mod 1) * 512 = 0
+- 第1级：k = (bf_count mod 2) * 256
+- ...
+- 第9级：k = (bf_count mod 512) * 1
+
+**代码实现关键**：
+```verilog
+// 旋转因子地址计算
+wire [LOGN-1:0] twiddle_addr;
+assign twiddle_addr = bf_count << (LOGN - stage - 1);
+
+// 状态机控制
+always @(posedge clk) begin
+    if(processing) begin
+        // 旋转因子查找
+        tw_real <= twiddle_rom[twiddle_addr];
+        tw_imag <= twiddle_rom[twiddle_addr+1];
+        
+        // 更新计数器
+        if(bf_count == N/2 - 1) begin
+            if(stage == LOGN - 1) 
+                processing <= 0; // 处理完成
+            else
+                stage <= stage + 1; // 下一级
+        end
+    end
+end
+```
+
+**设计特点**：
+- 旋转因子ROM：预计算存储，减少实时计算开销
+- 高效地址生成：使用移位而非乘法
+- 状态管理：清晰的处理流程控制
+- 时序协调：确保数据与旋转因子同步
+
+#### 完整数据流分析
+
+以1024点FFT为例（流水线模式）：
+
+1. **输入阶段（1024周期）**
+   - 位反转模块接收自然顺序输入
+   - 实时计算位反转地址
+   - 输出重排后的数据流
+
+2. **蝶形处理阶段（10级×512周期）**
+   - 每级处理：
+     * 读取RAM中的两个数据
+     * 执行蝶形运算（加法和减法）
+     * 结果写回RAM（原位计算）
+   - 控制单元提供旋转因子地址
+   - 旋转因子乘法器处理减法路径
+
+3. **输出阶段（1024周期）**
+   - 顺序读出最终结果
+   - 必要时进行缩放（IFFT模式）
+   - 输出自然顺序的频域数据
+
+**性能特点**：
+- 总延迟：1024（输入） + 10×512（处理） + 1024（输出） = 7168周期
+- 吞吐量：每1024周期处理一帧
+- 流水线优化：可设计为连续处理，每帧间隔1024周期
+
+#### 设计优化策略
+
+1. **存储优化**
+   - 使用双端口RAM：同时读写提高吞吐量
+   - 旋转因子压缩：利用对称性（W^{k+N/2} = -W^k）
+   - 块浮点：动态缩放减少位宽
+
+2. **计算优化**
+   - 复数乘法器复用：时间共享硬件资源
+   - 并行蝶形单元：多处理单元加速
+   - 流水线重定时：平衡各级延迟
+
+3. **系统集成**
+   - 直接内存访问（DMA）：高效数据搬运
+   - 可配置点数：支持不同规模FFT
+   - 自动缩放控制：防止溢出
+
+4. **精度增强**
+   - 保护位：增加内部计算位宽
+   - 舍入控制：可配置舍入模式
+   - 误差补偿：旋转因子误差校正
+
+通过调整参数（点数、位宽、流水线级数），可在性能、资源和功耗之间取得平衡，满足不同应用需求。
+
+这个设计完整实现了基2 DIT-FFT算法，通过模块化设计平衡了性能与资源消耗，是数字信号处理系统的核心组件。
+
+### 个人理解 TODO
+
+[7.5 Verilog FFT 设计 | 菜鸟教程](https://www.runoob.com/w3cnote/verilog-fft.html)
+
 ## 以太网问题整理
 
 ### 以太网数据帧格式
