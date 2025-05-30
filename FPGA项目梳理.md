@@ -3,9 +3,10 @@
 ## 程序结构
 
 1. MIPI的IP核接收相机数据
-2. 对相机数据进行FFT解算出频率
-3. 根据频率和组内的公式计算出对应的位移，俯仰角，偏摆角
-4. 使用千兆以太网发送相机传输过来的数据。
+2. 对相机数据进行FFT
+3. 根据FFT结果进行三点拟合，寻找峰值
+4. 根据频率和组内的公式计算出对应的位移，俯仰角，偏摆角
+5. 使用千兆以太网发送相机传输过来的数据。
 
 ## FFT代码问题整理
 
@@ -43,6 +44,34 @@
 2. 对$x$取$\pm$对，将方程组中所需要的的自变量$x$减少一半。出现递归中无法计算的问题
 3. 为解决递归中无法计算的问题，使用复数。$x$使用1的n次单位复根。这样保证每次平方完，它们还是正负成对出现的。这个idea利用了单位复根的性质，是FFT的核心思想。
 4. IFFT的算法与FFT一模一样，只是自变量$x$的取值需要变化一下。
+
+思考
+
+1. FFT如何在本例子中是将多项式表示方法中的系数表示转换成值表示的一种方法，又如何成为了DFT的一种快速运算方法？
+
+   答：FFT的推导过程中，相当于在将问题转换为方程的表示形式下。将系数矩阵(范德蒙德矩阵)取一组特值，从而计算系数矩阵右乘自变量向量的运算结果。当这个系数矩阵写成DFT的系数矩阵的形式，即可用此方法(FFT)快速求解DFT。
+
+### FFT步骤
+
+[【数字信号处理考研】基2-DIT-FFT基于时间抽取的快速傅里叶变换算法-推导及蝶形图画法_哔哩哔哩_bilibili](https://www.bilibili.com/video/BV1re411D7X1/?spm_id_from=333.337.search-card.all.click&vd_source=0c6e9aa27976c7e534f51b25bcdd53f0)
+
+#### 一次FFT步骤
+
+对DFT拆分成奇偶两部分做一次FFT的步骤有如图所示以下3步。
+
+![image-20250530111512126](FPGA项目梳理.assets/image-20250530111512126.png)![image-20250530111529191](FPGA项目梳理.assets/image-20250530111529191.png)
+
+以上三步可总结成如下的蝶形图的形式。
+
+![image-20250530111650690](FPGA项目梳理.assets/image-20250530111650690.png)
+
+![image-20250530113158372](FPGA项目梳理.assets/image-20250530113158372.png)
+
+#### 逐次迭代
+
+![image-20250530114906660](FPGA项目梳理.assets/image-20250530114906660.png)
+
+![image-20250530115551889](FPGA项目梳理.assets/image-20250530115551889.png)
 
 ### DeepSeek FFT 代码
 
@@ -558,28 +587,573 @@ always @(posedge sys_clk) begin
 end
 ```
 
-#### 优化建议
+#### 设计问题
 
-1. **精度增强**：
-   - 增加保护位防止溢出
-   - 采用块浮点算法
+1. 应在蝶形处理器的计算中融入旋转因子乘法器(复数乘法运算)，考虑将复数乘法运算定义成一个function而不是module。
+2. 控制单元的旋转因子生成后的存储有问题。
 
-2. **性能提升**：
-   - 并行多蝶形单元
-   - 增加流水线级数
-   - 使用双缓冲区连续处理
+#### 详细注释版
 
-3. **资源优化**：
-   - 旋转因子压缩存储（利用对称性）
-   - 时间共享复数乘法器
-   - 使用分布式RAM
+```verilog
+// =============================================================================
+// FFT处理器顶层模块
+// 功能：实现基于基2按时间抽取(DIT)算法的FFT处理器
+// 特点：1024点处理、16位定点复数、全流水线架构、支持FFT/IFFT模式切换
+// =============================================================================
+module fft_top #(
+    parameter N = 1024,            // FFT点数
+    parameter LOGN = 10,           // log2(N)，用于地址计算
+    parameter DWIDTH = 16,         // 数据位宽（实部和虚部）
+    parameter TWIDDLE_WIDTH = 16   // 旋转因子位宽
+)(
+    // 系统信号
+    input wire clk,                // 系统时钟
+    input wire reset,              // 同步复位信号（高有效）
+    
+    // 控制信号
+    input wire start,              // FFT启动信号（高有效）
+    input wire ifft_mode,          // 变换模式：0=FFT, 1=IFFT
+    
+    // 数据输入接口
+    input wire signed [DWIDTH-1:0] real_in,  // 输入数据实部
+    input wire signed [DWIDTH-1:0] imag_in,  // 输入数据虚部
+    input wire valid_in,           // 输入数据有效标志
+    
+    // 数据输出接口
+    output wire signed [DWIDTH-1:0] real_out, // 输出数据实部
+    output wire signed [DWIDTH-1:0] imag_out, // 输出数据虚部
+    output wire valid_out,         // 输出数据有效标志
+    
+    // 状态信号
+    output wire ready              // FFT就绪信号（可接收新数据）
+);
 
-4. **功能扩展**：
-   - 添加缩放控制
-   - 支持可变点数
-   - 增加循环前缀处理（用于OFDM）
+    // =========================================================================
+    // 内部信号声明
+    // =========================================================================
+    wire [LOGN-1:0] addr;          // 地址总线（用于RAM和旋转因子ROM）
+    
+    // 位反转模块信号
+    wire signed [DWIDTH-1:0] br_real, br_imag; // 位反转后数据
+    wire br_valid;                  // 位反转数据有效标志
+    
+    // 蝶形处理器信号
+    wire signed [DWIDTH-1:0] bf_real, bf_imag; // 蝶形运算后数据
+    wire bf_valid;                  // 蝶形运算数据有效标志
+    
+    // 旋转因子信号
+    wire signed [TWIDDLE_WIDTH-1:0] tw_real, tw_imag; // 旋转因子值
+    
+    // =========================================================================
+    // 模块实例化
+    // =========================================================================
+    
+    // 数据重排（位反转）模块
+    bit_reversal #(.N(N), .LOGN(LOGN), .DWIDTH(DWIDTH)) u_bit_rev (
+        .clk(clk),
+        .reset(reset),
+        .real_in(real_in),
+        .imag_in(imag_in),
+        .valid_in(valid_in),
+        .real_out(br_real),
+        .imag_out(br_imag),
+        .valid_out(br_valid),
+        .addr(addr)                // 输出位反转地址
+    );
+    
+    // 蝶形运算处理器模块
+    butterfly_processor #(.N(N), .LOGN(LOGN), .DWIDTH(DWIDTH)) u_bf_processor (
+        .clk(clk),
+        .reset(reset),
+        .real_in(br_real),         // 来自位反转模块
+        .imag_in(br_imag),
+        .valid_in(br_valid),
+        .real_out(bf_real),        // 输出到旋转因子乘法器
+        .imag_out(bf_imag),
+        .valid_out(bf_valid),
+        .addr(addr)                // 地址用于索引RAM
+    );
+    
+    // 旋转因子乘法器模块
+    twiddle_multiplier #(.DWIDTH(DWIDTH), .TWIDDLE_WIDTH(TWIDDLE_WIDTH)) u_tw_mult (
+        .clk(clk),
+        .reset(reset),
+        .real_in(bf_real),         // 来自蝶形处理器
+        .imag_in(bf_imag),
+        .valid_in(bf_valid),
+        .tw_real(tw_real),         // 来自控制单元的旋转因子
+        .tw_imag(tw_imag),
+        .ifft_mode(ifft_mode),     // FFT/IFFT模式控制
+        .real_out(real_out),       // 最终输出
+        .imag_out(imag_out),
+        .valid_out(valid_out)       // 输出有效标志
+    );
+    
+    // 控制单元模块
+    fft_control #(.N(N), .LOGN(LOGN)) u_control (
+        .clk(clk),
+        .reset(reset),
+        .start(start),             // 启动信号
+        .valid_in(valid_in),       // 输入有效用于时序控制
+        .addr(addr),               // 地址总线
+        .tw_real(tw_real),         // 旋转因子实部
+        .tw_imag(tw_imag),         // 旋转因子虚部
+        .ready(ready)              // 系统就绪信号
+    );
 
-此FFT处理器设计平衡了性能、资源和精度需求，适用于通信系统、音频处理和实时信号处理等应用场景。
+endmodule
+
+// =============================================================================
+// 位反转重排模块
+// 功能：将输入序列按二进制位反转顺序重新排列
+// 原理：基2 DIT-FFT算法要求输入序列按位反转顺序排列
+// =============================================================================
+module bit_reversal #(
+    parameter N = 1024,            // FFT点数
+    parameter LOGN = 10,           // log2(N)
+    parameter DWIDTH = 16           // 数据位宽
+)(
+    // 系统信号
+    input wire clk,
+    input wire reset,
+    
+    // 数据输入
+    input wire signed [DWIDTH-1:0] real_in,
+    input wire signed [DWIDTH-1:0] imag_in,
+    input wire valid_in,           // 输入数据有效标志
+    
+    // 数据输出
+    output reg signed [DWIDTH-1:0] real_out,
+    output reg signed [DWIDTH-1:0] imag_out,
+    output reg valid_out,          // 输出数据有效标志
+    output reg [LOGN-1:0] addr     // 位反转地址输出
+);
+
+    // 位反转函数：计算输入数据的二进制位反转
+    function [LOGN-1:0] reverse_bits;
+        input [LOGN-1:0] data;     // 输入地址
+        integer i;
+        begin
+            for(i = 0; i < LOGN; i = i+1)
+                // 将输入数据的第i位映射到输出数据的第(LOGN-1-i)位
+                reverse_bits[i] = data[LOGN-1-i];
+        end
+    endfunction
+
+    // 内部寄存器
+    reg [LOGN-1:0] count = 0;      // 输入数据计数器
+    reg [LOGN-1:0] rev_count;      // 位反转后的地址
+
+    // 主处理逻辑
+    always @(posedge clk) begin
+        if(reset) begin
+            // 复位状态
+            count <= 0;
+            valid_out <= 0;
+            addr <= 0;
+        end else if(valid_in) begin
+            // 计算当前计数器的位反转地址
+            rev_count = reverse_bits(count);
+            
+            // 输出位反转后的数据（此处直接通过，实际存储由后续模块完成）
+            real_out <= real_in;
+            imag_out <= imag_in;
+            addr <= rev_count;      // 输出位反转地址
+            valid_out <= 1;         // 标记输出有效
+            
+            // 更新计数器：0到N-1循环
+            count <= (count == N-1) ? 0 : count + 1;
+        end else begin
+            // 无有效输入时，输出无效
+            valid_out <= 0;
+        end
+    end
+
+endmodule
+
+// =============================================================================
+// 蝶形运算处理器模块
+// 功能：执行FFT核心的蝶形运算
+// 原理：使用基2按时间抽取(DIT)算法，原位计算减少存储需求
+// =============================================================================
+module butterfly_processor #(
+    parameter N = 1024,            // FFT点数
+    parameter LOGN = 10,           // log2(N)
+    parameter DWIDTH = 16           // 数据位宽
+)(
+    // 系统信号
+    input wire clk,
+    input wire reset,
+    
+    // 数据输入（来自位反转模块）
+    input wire signed [DWIDTH-1:0] real_in,
+    input wire signed [DWIDTH-1:0] imag_in,
+    input wire valid_in,           // 输入数据有效标志
+    input wire [LOGN-1:0] addr,    // 位反转地址
+    
+    // 数据输出（到旋转因子乘法器）
+    output reg signed [DWIDTH-1:0] real_out,
+    output reg signed [DWIDTH-1:0] imag_out,
+    output reg valid_out           // 输出数据有效标志
+);
+
+    // =========================================================================
+    // 存储和状态寄存器
+    // =========================================================================
+    
+    // 数据存储RAM：存储中间结果（复数：实部和虚部分开存储）
+    reg signed [DWIDTH-1:0] real_ram [0:N-1];
+    reg signed [DWIDTH-1:0] imag_ram [0:N-1];
+    
+    // 处理状态寄存器
+    reg [LOGN-1:0] stage = 0;      // 当前处理阶段（0到log2(N)-1）
+    reg [LOGN-1:0] bf_count = 0;   // 蝶形运算计数器
+    reg processing = 0;            // 处理状态标志（1=正在处理）
+
+    // =========================================================================
+    // 蝶形运算任务定义
+    // 功能：执行基本的蝶形运算
+    // 输入：两个复数 a = (a_real, a_imag) 和 b = (b_real, b_imag)
+    // 输出：两个复数 A = a + b 和 B = a - b
+    // 说明：每个蝶形运算作为一组
+    // 此模块存在的问题：
+    // 1. 一个always时序块中混用时序逻辑和组合逻辑
+    // 2. 输出逻辑不清晰
+    // 解决方法：
+    // 1. 将组合逻辑拿到always时序块外单独写成一个组合逻辑块
+    // 2. 输出时的bf_count和stage在always时序块外拆开写
+    // =========================================================================
+    task butterfly;
+        input signed [DWIDTH-1:0] a_real, a_imag;
+        input signed [DWIDTH-1:0] b_real, b_imag;
+        output signed [DWIDTH-1:0] A_real, A_imag;
+        output signed [DWIDTH-1:0] B_real, B_imag;
+        begin
+            // 加法路径：A = a + b
+            A_real = a_real + b_real;
+            A_imag = a_imag + b_imag;
+            
+            // 减法路径：B = a - b（旋转因子乘法在后续模块完成）
+            B_real = a_real - b_real;
+            B_imag = a_imag - b_imag;
+        end
+    endtask
+    
+    // =========================================================================
+    // 主处理逻辑
+    // =========================================================================
+    always @(posedge clk) begin
+        if(reset) begin
+            // 复位状态：初始化所有寄存器
+            stage <= 0;
+            bf_count <= 0;
+            processing <= 0;
+            valid_out <= 0;
+        end else begin
+            // 数据加载阶段：接收输入数据
+            if(valid_in && !processing) begin
+                // 将输入数据写入RAM（地址来自位反转模块）
+                real_ram[addr] <= real_in;
+                imag_ram[addr] <= imag_in;
+                
+                // 当接收到最后一个样本时，启动处理
+                if(addr == N-1) begin
+                    processing <= 1;      // 进入处理状态
+                    stage <= 0;           // 从第0级开始
+                    bf_count <= 0;        // 重置蝶形计数器
+                end
+                valid_out <= 0;           // 加载阶段无输出
+                
+            // 处理阶段：执行蝶形运算
+            end else if(processing) begin
+                // 变量声明
+                integer idx1, idx2;       // 蝶形运算的两个索引
+                reg [LOGN-1:0] group_size; // 当前级的分组大小
+                reg [LOGN-1:0] group;     // 当前组号
+                reg [LOGN-1:0] offset;    // 组内偏移
+                
+                // 计算当前级的数据索引
+                group_size = 1 << (stage + 1); // 分组大小 = 2^(stage+1)
+                group = bf_count >> stage;     // 组号 = bf_count / 2^stage
+                offset = bf_count & ((1 << stage) - 1); // 偏移 = bf_count mod 2^stage
+                
+                // 计算蝶形运算的两个数据点索引
+                idx1 = (group << (stage + 1)) | offset;      // 索引1 = group^(stage+1)+offset (group^(stage+1)为高位, offset为低位)
+                idx2 = idx1 | (1 << stage);                  // 索引2（同组内对称点）, idx2 = ((1<<stage) + idx1) ((1<<stage)为高位, idx1为低位). eg: stage = 0, idx1 = 0, idx2 = 1; stage = 1, idx1 = 1, idx2 = 3; stage = 2, idx1 = 3, idx2 = 7;
+                
+                // 临时变量存储蝶形运算输入
+                reg signed [DWIDTH-1:0] a_real, a_imag;
+                reg signed [DWIDTH-1:0] b_real, b_imag;
+                reg signed [DWIDTH-1:0] A_real, A_imag;
+                reg signed [DWIDTH-1:0] B_real, B_imag;
+                
+                // 从RAM读取数据
+                a_real = real_ram[idx1];
+                a_imag = imag_ram[idx1];
+                b_real = real_ram[idx2];
+                b_imag = imag_ram[idx2];
+                
+                // 执行蝶形运算
+                butterfly(a_real, a_imag, b_real, b_imag, 
+                         A_real, A_imag, B_real, B_imag);
+                
+                // 结果写回RAM（原位计算）
+                real_ram[idx1] <= A_real;
+                imag_ram[idx1] <= A_imag;
+                real_ram[idx2] <= B_real;
+                imag_ram[idx2] <= B_imag;
+                
+                // 更新计数器和状态
+                if(bf_count == N/2 - 1) begin
+                    // 当前级所有蝶形运算完成
+                    bf_count <= 0;        // 重置蝶形计数器
+                    
+                    if(stage == LOGN - 1) begin
+                        // 所有级完成，结束处理
+                        processing <= 0;
+                        valid_out <= 1;    // 输出最后一个结果
+                        real_out <= A_real;
+                        imag_out <= A_imag;
+                    end else begin
+                        // 进入下一级
+                        stage <= stage + 1;
+                    end
+                end else begin
+                    // 继续当前级处理
+                    bf_count <= bf_count + 1;
+                end
+                
+                // 最后一级的输出处理
+                if(stage == LOGN - 1) begin
+                    if(bf_count < N/2 - 1) begin
+                        // 输出当前结果（除最后一个外）
+                        valid_out <= 1;
+                        real_out <= A_real;
+                        imag_out <= A_imag;
+                    end else if(bf_count == N/2 - 1) begin
+                        // 输出最后一个结果
+                        valid_out <= 1;
+                    end
+                end else begin
+                    // 非最后级无输出
+                    valid_out <= 0;
+                end
+            end else begin
+                // 非处理状态无输出
+                valid_out <= 0;
+            end
+        end
+    end
+
+endmodule
+
+// =============================================================================
+// 旋转因子乘法器模块
+// 功能：执行复数乘法（数据与旋转因子相乘）
+// 原理：FFT的核心运算之一，实现频域旋转
+// =============================================================================
+module twiddle_multiplier #(
+    parameter DWIDTH = 16,         // 数据位宽
+    parameter TWIDDLE_WIDTH = 16   // 旋转因子位宽
+)(
+    // 系统信号
+    input wire clk,
+    input wire reset,
+    
+    // 数据输入（来自蝶形处理器）
+    input wire signed [DWIDTH-1:0] real_in,
+    input wire signed [DWIDTH-1:0] imag_in,
+    input wire valid_in,           // 输入数据有效标志
+    
+    // 旋转因子输入（来自控制单元）
+    input wire signed [TWIDDLE_WIDTH-1:0] tw_real, // 旋转因子实部
+    input wire signed [TWIDDLE_WIDTH-1:0] tw_imag, // 旋转因子虚部
+    
+    // 模式控制
+    input wire ifft_mode,          // 0=FFT, 1=IFFT
+    
+    // 数据输出
+    output reg signed [DWIDTH-1:0] real_out,
+    output reg signed [DWIDTH-1:0] imag_out,
+    output reg valid_out           // 输出数据有效标志
+);
+
+    // =========================================================================
+    // 内部计算寄存器
+    // =========================================================================
+    
+    // 部分积寄存器（防止溢出，使用更大位宽）
+    reg signed [DWIDTH+TWIDDLE_WIDTH-1:0] prod_real_real; // (real_in * tw_real)
+    reg signed [DWIDTH+TWIDDLE_WIDTH-1:0] prod_real_imag; // (real_in * tw_imag)
+    reg signed [DWIDTH+TWIDDLE_WIDTH-1:0] prod_imag_real; // (imag_in * tw_real)
+    reg signed [DWIDTH+TWIDDLE_WIDTH-1:0] prod_imag_imag; // (imag_in * tw_imag)
+    
+    // 结果寄存器（舍入后）
+    reg signed [DWIDTH-1:0] result_real, result_imag;
+
+    // =========================================================================
+    // 主处理逻辑
+    // =========================================================================
+    always @(posedge clk) begin
+        if(reset) begin
+            // 复位状态
+            real_out <= 0;
+            imag_out <= 0;
+            valid_out <= 0;
+        end else if(valid_in) begin
+            // 计算四个部分积（复数乘法分解）
+            prod_real_real = real_in * tw_real;  // 实部 * 实部
+            prod_real_imag = real_in * tw_imag;  // 实部 * 虚部
+            prod_imag_real = imag_in * tw_real;  // 虚部 * 实部
+            prod_imag_imag = imag_in * tw_imag;  // 虚部 * 虚部
+            
+            // 根据模式组合结果
+            if(ifft_mode) begin
+                // IFFT模式：乘以旋转因子的共轭并缩放
+                // 结果 = (real_in*tw_real + imag_in*tw_imag) + j(imag_in*tw_real - real_in*tw_imag)
+                result_real = (prod_real_real + prod_imag_imag) >>> (TWIDDLE_WIDTH - 1);
+                result_imag = (prod_imag_real - prod_real_imag) >>> (TWIDDLE_WIDTH - 1);
+            end else begin
+                // FFT模式：正常复数乘法
+                // 结果 = (real_in*tw_real - imag_in*tw_imag) + j(real_in*tw_imag + imag_in*tw_real)
+                result_real = (prod_real_real - prod_imag_imag) >>> (TWIDDLE_WIDTH - 1);
+                result_imag = (prod_real_imag + prod_imag_real) >>> (TWIDDLE_WIDTH - 1);
+            end
+            
+            // 输出结果
+            real_out <= result_real;
+            imag_out <= result_imag;
+            valid_out <= 1;  // 标记输出有效
+        end else begin
+            // 无有效输入时，输出无效
+            valid_out <= 0;
+        end
+    end
+
+endmodule
+
+// =============================================================================
+// 控制单元模块
+// 功能：管理FFT处理流程，生成旋转因子地址
+// 原理：根据当前处理阶段和蝶形运算计数计算旋转因子索引
+// =============================================================================
+module fft_control #(
+    parameter N = 1024,            // FFT点数
+    parameter LOGN = 10            // log2(N)
+)(
+    // 系统信号
+    input wire clk,
+    input wire reset,
+    
+    // 控制信号
+    input wire start,              // FFT启动信号
+    input wire valid_in,           // 输入有效（用于时序控制）
+    
+    // 地址总线
+    output reg [LOGN-1:0] addr,    // 地址输出（用于调试）
+    
+    // 旋转因子输出
+    output reg signed [15:0] tw_real, // 旋转因子实部
+    output reg signed [15:0] tw_imag, // 旋转因子虚部
+    
+    // 状态输出
+    output reg ready               // 系统就绪信号
+);
+
+    // =========================================================================
+    // 内部状态寄存器
+    // =========================================================================
+    reg [LOGN-1:0] stage = 0;      // 当前处理阶段
+    reg [LOGN-1:0] bf_count = 0;   // 蝶形运算计数器
+    reg processing = 0;            // 处理状态标志
+
+    // =========================================================================
+    // 旋转因子ROM定义
+    // 存储预计算的旋转因子（复数）
+    // =========================================================================
+    reg signed [15:0] twiddle_rom [0:N-1]; // 旋转因子存储器
+    
+    // ROM初始化（实际实现中应从文件加载）
+    initial begin
+        integer k;
+        real angle, pi = 3.141592653589793;
+        for(k = 0; k < N; k = k+2) begin
+            // 计算角度：θ = -2πk/N
+            angle = -2.0 * pi * (k/2) / N;
+            
+            // 实部 = cos(θ)，使用Q15格式（1位符号+15位小数）
+            twiddle_rom[k] = $floor(32767.0 * $cos(angle));
+            
+            // 虚部 = sin(θ)，存储在相邻位置
+            twiddle_rom[k+1] = $floor(32767.0 * $sin(angle));
+        end
+    end
+    
+    // =========================================================================
+    // 旋转因子地址计算
+    // 公式：第s级的旋转因子索引 = bf_count * 2^{log2(N)-s-1}
+    // =========================================================================
+    wire [LOGN-1:0] twiddle_addr;  // 旋转因子ROM地址
+    assign twiddle_addr = bf_count << (LOGN - stage - 1);
+
+    // =========================================================================
+    // 主控制逻辑
+    // =========================================================================
+    always @(posedge clk) begin
+        if(reset) begin
+            // 复位状态
+            stage <= 0;
+            bf_count <= 0;
+            processing <= 0;
+            ready <= 1;            // 复位后系统就绪
+            addr <= 0;
+            tw_real <= 16'h7FFF;   // 复位旋转因子为1.0
+            tw_imag <= 0;
+        end else if(start && ready) begin
+            // 启动FFT处理
+            processing <= 1;       // 进入处理状态
+            stage <= 0;            // 从第0级开始
+            bf_count <= 0;         // 重置蝶形计数器
+            ready <= 0;            // 系统忙
+        end else if(processing) begin
+            // 旋转因子查找
+            if(stage > 0) begin
+                // 第1级及以上：从ROM获取旋转因子
+                tw_real <= twiddle_rom[twiddle_addr];
+                tw_imag <= twiddle_rom[twiddle_addr+1];
+            end else begin
+                // 第0级：旋转因子为1（无需乘法）
+                tw_real <= 16'h7FFF; // 1.0 in Q15 (32767)
+                tw_imag <= 0;
+            end
+            
+            // 更新计数器
+            if(bf_count == N/2 - 1) begin
+                // 当前级完成
+                bf_count <= 0;      // 重置蝶形计数器
+                
+                if(stage == LOGN - 1) begin
+                    // 所有级完成
+                    processing <= 0; // 结束处理
+                    ready <= 1;      // 系统就绪
+                end else begin
+                    // 进入下一级
+                    stage <= stage + 1;
+                end
+            end else begin
+                // 继续当前级处理
+                bf_count <= bf_count + 1;
+            end
+            
+            // 输出当前地址（用于调试）
+            addr <= bf_count;
+        end
+    end
+
+endmodule
+```
+
+
 
 ### DeepSeek FFT代码解释
 
@@ -638,6 +1212,7 @@ end
 #### 2. 蝶形处理器 (butterfly_processor.v)
 
 **作用**：
+
 - 执行FFT核心计算：蝶形运算
 - 实现多级流水线处理
 - 管理中间结果存储
