@@ -2,6 +2,12 @@
 
 ## 低速通信协议SPI、I2C、UART、以太网详解
 
+[SPI原理超详细讲解---值得一看-CSDN博客](https://blog.csdn.net/as480133937/article/details/105764119#:~:text=本文介绍了SPI的定义，主从模式，信号线，设备选择，数据发送接收，通信的四种模式和三种模式等内容，适合STM32和通信协议的学习者。文章包含了SPI的原理图，配置代码，实例和注意事项，值得一看。)
+
+[I2C总线协议详解（特点、通信过程、典型I2C时序）-CSDN博客](https://blog.csdn.net/zhangduang_KHKW/article/details/121953275)
+
+[基础通信协议之 IIC (I2C) 详细讲解_i2c通信的详细讲解-CSDN博客](https://blog.csdn.net/qq_39829913/article/details/104718185)
+
 以下是 **SPI、I2C、UART、以太网** 的物理连接图、时序图、数据帧格式、传输速率、优缺点及传输距离的详细总结。由于无法直接绘制图形，以下以文字描述和格式化的表格/示意图替代。
 
 ---
