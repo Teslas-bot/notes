@@ -1209,7 +1209,7 @@ end
 - 原位计算：直接输出重排后的数据流
 - 低延迟：仅需1个时钟周期完成地址计算
 
-#### 2. 蝶形处理器 (butterfly_processor.v)
+##### 2. 蝶形处理器 (butterfly_processor.v)
 
 **作用**：
 
@@ -1271,9 +1271,10 @@ end
 - 高效存储访问：通过地址生成器优化RAM访问模式
 - 可扩展性：通过stage计数器控制处理级数
 
-#### 3. 旋转因子乘法器 (twiddle_multiplier.v)
+##### 3. 旋转因子乘法器 (twiddle_multiplier.v)
 
 **作用**：
+
 - 完成蝶形运算中的复数乘法
 - 支持FFT/IFFT模式切换
 - 处理定点数精度和溢出
@@ -1317,7 +1318,7 @@ end
 - 模式切换：FFT/IFFT通过共轭操作实现
 - 流水线设计：每个时钟完成一次复数乘法
 
-#### 4. 控制单元 (fft_control.v)
+##### 4. 控制单元 (fft_control.v)
 
 **作用**：
 - 生成旋转因子地址
@@ -1366,7 +1367,7 @@ end
 - 状态管理：清晰的处理流程控制
 - 时序协调：确保数据与旋转因子同步
 
-#### 完整数据流分析
+##### 完整数据流分析
 
 以1024点FFT为例（流水线模式）：
 
@@ -1393,35 +1394,170 @@ end
 - 吞吐量：每1024周期处理一帧
 - 流水线优化：可设计为连续处理，每帧间隔1024周期
 
-#### 设计优化策略
-
-1. **存储优化**
-   - 使用双端口RAM：同时读写提高吞吐量
-   - 旋转因子压缩：利用对称性（W^{k+N/2} = -W^k）
-   - 块浮点：动态缩放减少位宽
-
-2. **计算优化**
-   - 复数乘法器复用：时间共享硬件资源
-   - 并行蝶形单元：多处理单元加速
-   - 流水线重定时：平衡各级延迟
-
-3. **系统集成**
-   - 直接内存访问（DMA）：高效数据搬运
-   - 可配置点数：支持不同规模FFT
-   - 自动缩放控制：防止溢出
-
-4. **精度增强**
-   - 保护位：增加内部计算位宽
-   - 舍入控制：可配置舍入模式
-   - 误差补偿：旋转因子误差校正
-
-通过调整参数（点数、位宽、流水线级数），可在性能、资源和功耗之间取得平衡，满足不同应用需求。
-
 这个设计完整实现了基2 DIT-FFT算法，通过模块化设计平衡了性能与资源消耗，是数字信号处理系统的核心组件。
 
 ### 个人理解 TODO
 
 [7.5 Verilog FFT 设计 | 菜鸟教程](https://www.runoob.com/w3cnote/verilog-fft.html)
+
+1. 同步FIFO
+
+2. 位反转重排模块
+
+3. 蝶形算法模块
+
+   1. 输入输出声明
+
+      ```verilog
+      module fft_top #(
+          parameter N = 1024,            // FFT点数
+          parameter LOGN = 10,           // log2(N)
+          parameter DWIDTH = 16,         // 数据位宽
+          parameter TWIDDLE_WIDTH = 16   // 旋转因子位宽
+      )(
+          input wire clk,
+          input wire rst_n,
+          input wire start,
+          // input wire ifft_mode,          // 0=FFT, 1=IFFT
+          input wire signed [DWIDTH-1:0] real_in [0:N-1],
+          input wire signed [DWIDTH-1:0] imag_in [0:N-1],
+          input wire valid_in,
+          
+          output wire signed [DWIDTH-1:0] real_out [0:N-1],
+          output wire signed [DWIDTH-1:0] imag_out [0:N-1],
+          output wire valid_out,
+          // output wire ready
+      );
+      
+      ```
+
+   2. 初始化旋转因子
+
+      ```verilog
+      // 旋转因子ROM
+      reg signed [TWIDDLE_WIDTH:0] twiddle_rom_real [0:N/2-1];
+      reg signed [TWIDDLE_WIDTH:0] twiddle_rom_imag [0:N/2-1];
+      initial begin
+          // 初始化旋转因子ROM（实际实现中应从文件加载）
+          integer k;
+          real angle, pi = 3.141592653589793;
+          for(k = 0; k < N/2; k = k+1) begin
+              angle = 2.0 * pi * k / N;
+              twiddle_rom_real[k] = $floor(32767.0 * $cos(angle)); // 实部
+              // 虚部存储在相邻位置
+              twiddle_rom_imag[k] = $floor(32767.0 * $sin(angle));
+          end
+      end
+      ```
+
+   3. 一次从FIFO中拿取N(FFT点数)个数据
+
+      ```verilog
+      input wire signed [DWIDTH-1:0] real_in [0:N-1],
+      ```
+
+   4. 声明中间变量
+
+      ```verilog
+      // 蝶形运算寄存器组
+      reg signed [DWIDTH-1:0] real_ram [0:N-1];
+      reg signed [DWIDTH-1:0] imag_ram [0:N-1];
+      initial begin
+          real_ram = input_real;
+      	imag_ram = input_ram;
+      end
+      ```
+
+   4. 定义FFT蝶形运算中复数乘法操作
+
+      ```verilog
+      task FFT_cal;
+          input signed [DWIDTH-1:0] x0_real;
+          input signed [DWIDTH-1:0] x0_imag;
+          input signed [DWIDTH-1:0] x1_real;
+          input signed [DWIDTH-1:0] x1_imag;
+          input signed rotate_factor_real;
+          input signed rotate_factor_imag;
+          
+          output signed [DWIDTH-1:0] x2_real;
+          output signed [DWIDTH-1:0] x2_imag;
+          output signed [DWIDTH-1:0] x3_real;
+          output signed [DWIDTH-1:0] x3_imag;
+          
+          x2_real <= x0_real + (rotate_factor_real * x1_real - rotate_factor_imag * x1_imag);
+          x2_imag <= x0_imag + (rotate_factor_real * x1_imag + rotate_factor_imag * x1_real);
+          x3_real <= x0_real - (rotate_factor_real * x1_real - rotate_factor_imag * x1_imag);
+          x3_imag <= x0_imag - (rotate_factor_real * x1_imag + rotate_factor_imag * x1_real);
+      endtask
+      ```
+
+   5. 定义阶段变量stage，表明FFT的阶段
+
+      ```verilog
+      reg unsigned [LOGN-1] stage;
+      ```
+
+   6. 按照所处阶段执行循环
+
+      ```verilog
+      // 模块开始工作逻辑
+      always @(posedge clk or negedge rst_n) begin
+          if (!rst_n)
+              work_en <= 1'b0;
+          else if (valid_in) 
+              work_en <= 1'b1;
+          else if (stage == N-1)
+              work_en <= 1'b0;
+          else work_en <= work_en;
+      end
+      
+      always @(posedge clk or negedge rst_n) begin
+          if (!rst_n) begin 
+              real_ram <= input_real;
+      		imag_ram <= input_ram;
+              stage <= 0;
+          end else if (work_en) begin
+              // integer i;	// i代表stage stage从0到LOGN-1
+              // for (i = 0; i < LOGN; i = i + 1) begin
+              integer j; // j代表小蝶形的数量
+              // j < N/2^(stage+1)
+              for (j = 0; j < (N>>(1+stage)); j = j + 1) begin
+                  integer k; // k代表小蝶形中数据的位置
+                  for (k = 0; k < (1<<stage); k = k + 1) begin
+                      FFT_cal(real_ram[k], image_ram[k], real_ram[k+(1<<stage)], image_ram[k+(1<<stage)], twiddle_rom_real[k<<(LOGN-stage)], twiddle_rom_real[k<<(LOGN-stage)],real_ram[k], image_ram[k], real_ram[k+(1<<stage)], image_ram[k+(1<<stage)]);
+                  end
+              end
+              // end
+              if (stage == N-1) begin
+                  stage <= 0;
+                  // work_en <= 0;
+                  valid_out <= 1'b1;
+              end else begin
+                  stage <= stage + 1;
+                  valid_out <= 1'b0;
+              end
+          end
+      end
+      assign real_out = valid_out ? ram_real : DWIDTH'b0;
+      assign imag_out = valid_out ? ram_imag : DWIDTH'b0;
+      ```
+
+   7. 不使用循环，则可按时钟计算出当前阶段`stage`，处于蝶形的个数，蝶形中数据的位置，输出数据的位置。
+
+### FFT补零原因
+
+[快速傅里叶变换(FFT)中为什么要“补零”？ - 知乎](https://zhuanlan.zhihu.com/p/85863024)
+
+## 三点抛物线拟合问题整理
+
+程序逻辑：
+
+1. 寻找FFT结果的最大值，次大值，第三大值
+2. 三点抛物线拟合
+
+![image-20250606112456091](FPGA项目梳理.assets/image-20250606112456091.png)
+
+问题：除法如何保证精度。
 
 ## 以太网问题整理
 
@@ -1820,11 +1956,25 @@ IDDR #(
 ## 程序结构
 
 1. 31阶FIR滤波器
+
+   [7.2 Verilog 并行 FIR 滤波器设计 | 菜鸟教程](https://www.runoob.com/w3cnote/verilog-fir.html)
+
 2. 寻找最值和平均值
+
 3. 直流偏置矫正+不等幅矫正(寻找最值并交叉相乘)
+
 4. 非正交矫正(相加相减)(未来可用最小二乘矫正)
+
 5. 不等幅矫正
+
 6. cordic计算两路之间的角度，即相位
+
+   [CORDIC算法详解及FPGA实现-CSDN博客](https://blog.csdn.net/ngany/article/details/117401494)
+
 7. 相位解缠
+
+   跨越Y轴时，整数个PI+1
+
 8. 相位进FIFO
+
 9. 串口低速读取FIFO中的数据并发送
