@@ -1978,3 +1978,182 @@ IDDR #(
 8. 相位进FIFO
 
 9. 串口低速读取FIFO中的数据并发送
+
+# 感性/容性器件检测
+
+1. 31阶FIR滤波器
+2. 计算均值、有效值、最值
+3. FFT
+4. cordic
+5. CAN总线
+6. SPI通信控制
+
+## CAN总线
+
+### **一、核心原则**
+
+- **CAN_TX**：由 **CAN控制器** 输出，指示 **希望发送的信号**（0=显性，1=隐性）。
+- **CAN_RX**：由 **CAN收发器** 输出，反映 **总线实际状态**（0=总线显性，1=总线隐性）。
+- **关键逻辑**：
+  **CAN_RX 始终反映总线真实电平**，与 CAN_TX 是否发送无关！
+
+[一文读懂CAN总线协议 (超详细配34张高清图)_can总线协议详解-CSDN博客](https://blog.csdn.net/qq_35057766/article/details/135580884)
+
+[ 一口气从零读懂CAN总线， - 知乎](https://zhuanlan.zhihu.com/p/32221140)
+
+[ 一口气从零读懂CAN总线。 - 知乎](https://zhuanlan.zhihu.com/p/32262127)
+
+### 二、`tx_ben`标志位的位填充逻辑
+
+```verilog
+if(tx_ben) begin  // 位有效（非填充位）
+    {bit_tx, tx_shift} <= {tx_shift, 1'b1};  // 发送有效位
+    tx_crc <= tx_crc_next;  // 更新CRC
+end else begin  // 需要位填充
+    bit_tx <= ~tx_history[0];  // 发送填充位（取反前一位）
+end
+```
+
+**1. `tx_ben`的定义与作用**：
+
+```verilog
+wire tx_ben = ({tx_history, bit_tx} != 5'd0) && ({tx_history, bit_tx} != 5'd31);
+```
+
+- **含义**：检测连续相同位的数量是否在有效范围内（非填充条件）
+- 计算方式：
+  - `{tx_history, bit_tx}`：将 4 位发送历史与当前发送位组合成 5 位
+  - 当 5 位不全为 0（`5'd0`）且不全为 1（`5'd31`）时，`tx_ben = 1'b1`
+- **作用**：判断是否需要进行位填充（避免连续 5 个相同位）
+
+**2. 位填充的原理**：
+
+- **CAN 协议要求**：为保证数据同步，禁止出现连续 5 个相同位
+- 填充规则：
+  - 发送方：当检测到连续 5 个相同位时，自动插入 1 个反相位
+  - 接收方：检测到连续 5 个相同位后，自动删除后续 1 位
+- **示例**：
+  若当前发送序列为`00000`（5 个显性位），发送方会插入 1 个`1`（隐性位），实际发送`000001`
+
+### 三、核心难点
+
+#### 冲突仲裁机制，需要在仲裁段中同时进行输入输出逻辑
+
+##### 解决方案实现
+
+在`can_level_packet`模块中实现了硬件级仲裁机制：
+
+```verilog
+// 仲裁阶段（TRX_ID_BASE状态）
+TRX_ID_BASE : begin
+    if(tx_arbitrary && bit_rx==bit_tx) begin  // 仲裁继续
+        if(tx_ben) begin
+            {bit_tx, tx_shift} <= {tx_shift, 1'b1};  // 发送下一位
+            tx_crc <= tx_crc_next;
+        end else begin
+            bit_tx <= ~tx_history[0];  // 发送填充位
+        end
+    end else begin  // 仲裁失败
+        tx_arbitrary <= 1'b0;  // 退出仲裁
+    end
+    
+    // 仲裁失败处理
+    if(!(tx_arbitrary && bit_rx==bit_tx)) begin
+        cnt <= 8'd0;
+        stat <= RX_IDE_BIT;  // 转为接收模式
+    end
+end
+```
+
+##### 工作原理
+
+1. **同时输入输出**：
+   - 在仲裁阶段(TRX_ID_BASE)，节点同时发送ID位并监听总线
+   - `bit_tx`为发送位，`bit_rx`为接收位
+   - 比较器实时比较两者是否相等
+2. **优先级仲裁**：
+   - 显性位(0)优先级高于隐性位(1)
+   - 当发送隐性位但检测到显性位时，立即停止发送
+   - 退出仲裁状态(tx_arbitrary=0)，转为接收模式
+3. **无损仲裁**：
+   - 仲裁失败后完整接收获胜帧
+   - 不会破坏正在传输的帧
+
+#### 实时组合逻辑crc校验
+
+使用组合逻辑函数实现实时CRC计算：
+
+```verilog
+// CRC15计算函数
+function [14:0] crc15;
+    input [14:0] crc_val;
+    input [ 0:0] in_bit;
+begin
+    crc15 = ( {crc_val[13:0], 1'b0} ^ 
+             ((crc_val[14]^in_bit) ? 15'h4599 : 15'h0) );
+end
+endfunction
+
+// 发送端CRC更新
+wire[14:0] tx_crc_next = crc15(tx_crc, tx_shift[49]);
+
+// 接收端CRC更新
+wire[14:0] rx_crc_next = crc15(rx_crc, bit_rx);
+```
+
+##### 工作原理
+
+1. **实时计算**：
+   - 每个位周期更新CRC值
+   - 发送端基于发送位更新
+   - 接收端基于接收位更新
+2. **多项式实现**：
+   - 使用CAN标准多项式0x4599
+   - 通过异或和移位操作实现
+   - 组合逻辑延迟极低（单周期完成）
+3. **校验机制**：
+   - 发送端：CRC作为帧的一部分发送
+   - 接收端：计算CRC并与接收值比较
+   - 校验失败时丢弃帧：`rx_valid <= rx_valid_pre & (rx_crc==15'd0)`
+
+#### 位时序补偿
+
+##### 解决方案实现
+
+在`can_level_bit`模块实现同步机制：
+
+```verilog
+// 硬同步
+if(~inframe & rx_fall) begin  // 帧起始检测
+    adjust_c_PBS1 <= default_c_PBS1_e;
+    cnt <= 17'd1;
+    stat <= STAT_PTS;
+    inframe <= 1'b1;
+end
+
+// 重同步
+case(stat)
+    STAT_PTS: 
+        if((rx_fall & tbit) && cnt>17'd2)
+            adjust_c_PBS1 <= default_c_PBS1_e + cnt;  // 延长PBS1
+        
+    STAT_PBS2:
+        if((rx_fall & tbit) || (cnt>=default_c_PBS2_e)) 
+            // 提前结束位时间
+end
+```
+
+##### 工作原理
+
+1. **硬同步(Hard Synchronization)**：
+   - 在帧起始(SOF)的下降沿触发
+   - 复位位时序计数器
+   - 确保所有节点从同一起点开始
+2. **重同步(Resynchronization)**：
+   - 在位时间内检测到边沿时触发
+   - 通过调整PBS1长度补偿时钟偏差：
+     - 边沿提前到达：延长PBS1 (`adjust_c_PBS1 <= default_c_PBS1_e + cnt`)
+     - 边延延迟到达：缩短PBS2 (提前结束位时间)
+3. **采样点控制**：
+   - PBS1结束时采样总线
+   - 确保在最佳位置采样：`rbit <= rx_buf`
