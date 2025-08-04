@@ -64,6 +64,11 @@ UVM的基础是一个源码库，这个源码库为用户提供了各种资源
 
 # 搭建一个简单的UVM平台
 
+* **使用UVM的第一条原则是：验证平台中所有的组件应该派生自UVM中的类。**
+* **请记住一点:所有派生自uvm_component及其派生类的类都应该使用uvm_component_utils宏注册。**(factory机制)
+* **在UVM验证平台中,只  要一个类使用uvm_component_utils注册且此类被实例化了,那么这个类的main_phase就会自动被调用。**
+* **无论传递给run_test的参数是什么,创建的实例的名字都为uvm_test_top。**
+
 ## UVM平台的主要组件
 
 ![image-20250713084157470](UVM.assets/image-20250713084157470.png)
@@ -168,8 +173,8 @@ endclass
 创建对应的sequence需要注意以下几点：
 
 * sequence需要从uvm_sequence扩展
-* sequence控制并产生一系列sequence，并且可以控制事务何时产生，何时结束
-* 一种sequencec一般只用来产生一种类型的transaction
+* sequence控制并产生一系列transaction，并且可以控制事务何时产生，何时结束
+* 一种sequence一般只用来产生一种类型的transaction
 * sequence中最重要的部分就是body()任务。对事务的控制和事务的产生都是在这个body()任务中完成的。因此写好body()任务时关键。
 
 当一个sequence被启动后，他会按照body()函数中的功能，依次产生多个相同类型的事务对象。
@@ -211,9 +216,11 @@ class my_sequence extends uvm_sequence #(my_transaction);
         
 ```
 
+**个人理解transaction是事务的最小单位，sequence是一系列transaction的组合（序列），sequencer用于控制何种条件下产生何种类型的sequence。（这里的何种类型的sequence是指：由多少数量、多少种类的transaction按照何种排列方式构成的sequence）**
+
 ## 创建sequencer
 
-从UVM的平台结构的角度看，sequence_item和sequence并不属于结构的一部分。它们是流动在 这些组件中的数据流。
+从UVM的平台结构的角度看，sequence_item和sequence并不属于结构的一部分。它们是流动在这些组件中的数据流。
 
 uvm_sequencer的作用：
 
@@ -228,18 +235,252 @@ sequencer的功能大多数已经在UVM源码中实现，所以创建sequencer�
 typedef uvm_sequencer #(my_transaction) my_sequencer;
 ```
 
-一个参数化的类，一般需要指定sequencer传递的transaction类型，便是一种sequencecr对应一种类型的transaction。
+一个参数化的类，一般需要指定sequencer传递的transaction类型，表示一种sequencecr对应一种类型的transaction。
+
+## 平台组件的重要属性 - phase机制
+
+UVM平台中的所有组件都具有phase概念，它们由按照一定顺序执行的任务或函数组成。
+```mermaid
+graph TD
+A(build_phase) -->B(connect_phase) --> C(end_of_elaboration_phase) -->D(start_of_elaboration_phase)
+D -->E(run_phase) -->F(exact_phase) -->G(check_phase) -->H(report_phase)
+```
+
+这些`*_phase`是组件中的任务或者函数，需要根据具体情况对它们进行重载。按照有图的顺序从上到下依次执行。
+
+在这里做简单了解，后续会详细介绍。在这里需要了解phase的3点特性。
+
+1. 这些phase存在于每一个组件当中，并且他们仅仅是任务或者函数。
+2. 需要根据实际的情况对他们进行重载，以实现我们想要的功能。
+3. 这些phase是按照UVM已经固定好的顺序自动执行的，不需要主动调用。
 
 ## 创建driver
 
-## 创建monitor
+diriver的主要职能有三个：
+
+1. 从sequencer获取transaction
+2. 将trancsaction分解为DUT可以接受的PIN级信号
+3. 将转化后的PIN级信号按照DUT总线协议的方式驱动给DUT
+
+```systemverilog
+// 一个参数化的类，指定该driver所要处理的transaction的类型
+class my_driver extends uvm_driver #(my_transaction);
+    // 所有的平台组件注册使用的都是`uvm_component_utils宏
+    // 其他的都是用uvm_object_utils宏
+    // 这里是对my_driver进行平台组件的注册
+    `uvm_component_utils(my_driver)
+    
+    // 使用父类构造函数作为此类的构造函数
+    function new(string name = "my_drever", uvm_component parent);
+        super.new(name, parent);        
+    endfunction
+    
+    // run_phase()是driver的主要方法
+    // driver在这个方法中完成从sequencer获取transaction、对transaction的分解和驱动DUT
+    virtual task run_phase(uvm_phase phase);
+    	// 死循环
+        // 一般来说, driver是不停工作的, 所以使用死循环
+        forever begin
+            // 从sequencer中获取transaction  
+            // req是一个指向my_tansaction类型的指针(ref), 这个语句每执行一次, req指向一个新的从sequencer中获取到的transaction
+            seq_item_port_get_next_item(req);
+            // 将获取的transaction打印出来
+            `uvm_info("DRV_RUN_PHASE", req.sprint(), UVM_MEDIUM)
+            // 等待100个时间单位
+            #100;
+            // 通知sequencer该事务已经处理完毕
+            seq_item_port.item_done();
+            
+        end
+            
+    endtask
+         
+endclass
+```
+
+![image-20250720184132468](UVM.assets/image-20250720184132468.png)
 
 ## 创建monitor
+
+* monitor的主要功能是监视接口的信号，捕获接口上活动的事务，并且将pin级的信号事务转化为事务级的数据包，之后将这些数据包发送到analysis组件（包括reference model、scoreboard等）进行分析和产生报告。
+* monitor通过TLM-port与其他组件相连。
+
+```systemverilog
+class my_monitor extends uvm_monitor;
+    
+    `uvm_component_utils(my_monitor)
+    
+    function new(string name = "", uvm_component parent);
+        super.new(name, parent);
+    endfunction
+    
+    // 每过100个时间单位，打印一条信息，没有监视接口信号，也没有其他组件进行联系
+    virtual task run_phase(uvm_phase phase);
+        forever begin
+            `uvm_info("MON_RUN_PHASE", "Monitor run!", UVM_MDDIUM)
+        end
+    endtask
+    
+endclass
+```
+
+![image-20250720184249309](UVM.assets/image-20250720184249309.png)
 
 ## 创建agent
 
+* agent封装了sequencer、driver、monitor
+* agent中需要实例化sequencer、driver和monitor对象并将sequencer和driver连接起来。
+* gent有active和passive之分。passive模式的agent只包含monitor而没有sequencer和driver。
+
+```systemverilog
+class master_agent extends uvm_agent;
+    // 在uvm中注册
+    `uvm_component_utils(master_agent)
+    
+    // 自定义的 class 通过 new 的方式定义的变量都是句柄变量
+    my_sequencer m_seqr;
+    my_driver m_driv;
+    my_monitor m_moni;
+    
+    // 使用父类构造函数作为此类的构造函数
+    // - name: 实例化对象的名字
+    // - parent: 实例化对象的父对象
+    function new(string name = "", uvm_component parent);
+        super.new(name, parent);
+    endfunction
+    
+    // 一个用于创建和构造的phase
+    // sequencer, driver, monitor都会在这里进行实例化
+    virtual function void build_phase(uvm_phase phase);
+        super.build_phase(phase);
+        // 当为active模式时才创建sequencer和driver对象。is_active时agent内建的变量，默认值为UVM_ACTIVE
+        if (is_active == UVM_ACTIVE) begin
+            // 使用UVM的factory机制创建对象
+            // 实例化对象的名字是my_seqr
+            // 实例化对象的父对象是this - 这个用户自定义的agent
+            m_seqr = my_sequencer::type_id::create("my_seqr", this);
+        	m_driv = my_driver::type_id::create("m_driv", this);
+        end
+        m_moni = my_monitor::type_id::create("m_driv", this);
+    endfunction
+    
+    // 一个用于连接的phase
+    virtual function void connect_phase(uvm_phase phase);
+        // 将driver的seq_item_port和sequencer的seq_item_export相连，以实现它们之间的transaction级通信，它在build_phase()之后执行
+        if (is_active == UVM_ACTIVE) begin
+            m_driv.seq_item_port.connect(m_seqr.seq_item_export); 
+        end       
+    endfunction
+endclass
+```
+
+![image-20250720184053179](UVM.assets/image-20250720184053179.png)
+
 ## 创建environment
+
+* environment中封装了一个或多个agent、reference model、scoreboard以及其他组件。
+* environment需要实例化agents、reference model、scoreboard以及其他组件并将这些组件相互连接。
+
+```systemverilog
+/**
+* 此env为简化结构，省去了reference model和scoreboard等组件和连接
+*/
+class my_env extends uvm_env;
+    
+    `uvm_component_utils(my_env)
+    
+    master_agent m_agent;
+    
+    function new(string name = "", uvm_component parent);
+        super.new(name, parent);
+    endfunction
+    
+    virtual function void build_phase(uvm_phase phase);
+        super.build_phase(phase);
+        m_agent = master_agent::type_id::create("m_agnet", this);
+    endfunction
+    
+endclass
+```
 
 ## 创建testcase
 
+在一个测试工程中，测试案例(testcase)会有很多个，不同的测试案例用来完成不同的测试工作。但env往往只有一个，并且一旦完成，在后续的测试过程中就不能再对齐进行改动。如果发现测试平台有问题，需要修复，那么之前完成的测试都需要再重新执行一遍。
+
+* testcase中包含了env。它的作用是实例化并配置env。使env模拟不同的测试环境以及执行不同的测试行为。
+* 配置需要启动的sequence
+
+```systemverilog
+class my_test extends uvm_test;
+    
+    // 在uvm中注册
+    `uvm_component_utils(my_test)
+    
+    // 为env声明句柄
+    my_env m_env;
+    
+    // 使用父类构造函数作为此类的构造函数
+    function new(string name = "", uvm_component parent);
+        super.new(name, parent);
+    endfunction
+    
+    // 重载build_phase函数
+    virtual function void build_phase(uvm_phase phase);
+        // 执行父类build_phase函数
+        super.build_phase(phase);
+        // 使用uvm的factory机制实例化env
+        m_env = m_env::type_id::create("m_env", this);
+        
+        /**
+        * uvm_config_db是uvm内建的一个带参数的类
+        * set是这个类当中的一个静态函数，功能是为一个指定的目标设置资源
+        * 这个函数的使用过程中一共配置了4个参数，分别是:
+        * this - 调用set的位置, this表示这个set函数是被用户正在定义的这个testcase所调用的
+        * "*.m_seqr.run_phase" - 被配置变量的相对路径, *代表通配符
+        * "default_sequence" - 目标变量的标识符
+        * my_sequence::get_type() - 要启动的sequence的type(这里是my_transaction)
+        * 这样设置后在仿真的run_phase阶段my_sequence就会被sequencer所启动
+        * 经过这套语句之后，sequencer中的default_sequence指向了my_sequence
+        * 在平台运行到run_phase的时候，sequencer就会将它启动起来
+        * 这样driver就可以在run_phase阶段从sequencer那里获取该sequence所产生的事务对象了
+        */
+        // 使用uvm的config机制，为agent中的sequencer指定dufault_sequence
+        uvm_config_db#(uvm_object_wrapper)::set(this, "*.m_seqr.run_phase", "default_sequence", my_sequence::get_type());        
+    endfunction
+    
+    // 重载start_of_simulation_phase, 从之前的流程图来看, 这个phase位于run_phase之前, 所以它会先于run_phase执行
+    virtual function void start_of_simulation_phase(uvm_phase phase);
+        super.start_of_simulation_phase(phase);
+        // 调用uvm内建的一个函数print_topology函数, 可以打印出当前测试平台的结构
+        uvm_top.print_topology(uvm_default_tree_printer);
+    endfunction
+endclass
+```
+
 ## 运行仿真
+
+在学习SystemVerilog时知道，program可以用来启动仿真平台
+
+```systemverilog
+program automatic test;
+    // 将uvm的相关库文件导入进来
+    import uvm_pkg::*;
+    // 包含uvm的宏文件
+    `include "uvm_macros.svh"
+    // 包含以上我们写的所有代码文件, 使用`include ""的方式包含进来
+    
+    initial begin
+        // 调用uvm的全局任务run_test()来启动uvm验证平台
+        run_test();
+    end
+    
+endprogram
+```
+
+![image-20250721151954731](UVM.assets/image-20250721151954731.png)
+
+![image-20250721154349308](UVM.assets/image-20250721154349308.png)
+
+![image-20250721154438148](UVM.assets/image-20250721154438148.png)
+
+![image-20250721154930131](UVM.assets/image-20250721154930131.png)

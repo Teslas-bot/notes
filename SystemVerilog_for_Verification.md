@@ -1114,3 +1114,27 @@ endfunction
 ## Static Property
 
 ## Static Method
+
+# 句柄vs指针
+
+参考博客：
+
+* [system verilog 句柄 ref参数传递 C语言指针_systemverilog ref-CSDN博客](https://blog.csdn.net/qq_40456702/article/details/126730545)
+
+system verilog 句柄
+sv对象的引用是采用对象句柄(object handle)，它与C指针概念接近，但又不完全相同
+
+ 句柄的基本功能跟指针一样，都是用来指向具体对象，及句柄本身的值就是对象所占内存空间的起始地址
+ 但句柄与指针相比，能力有限，区别主要体现在以下几方面
+
+![img](https://i-blog.csdnimg.cn/blog_migrate/e78aaaa848f1279f4a9c3f329feaaf44.png)
+
+systemverilog 中的变量可以分为两种，一种普通变量类型，一种是句柄变量类型
+
+内置类型，比如 int，bit，这些类型定义的变量都是普通变量
+自定义的 class 通过 new 的方式定义的变量都是句柄变量
+变量赋值
+
+普通变量赋值，直接是拷贝值
+句柄变量赋值，只是拷贝了句柄，使得两个句柄指向同一个空间
+system verilog 没有拷贝构造函数，所以句柄变量拷贝的时候只是进行了句柄的拷贝，没有进行指向空间的拷贝。为了完成指向空间的拷贝，一般实现的方式是先 new 一块空间，让后调用 copy 函数，copy 函数实现了拷贝构造函数的功能。
