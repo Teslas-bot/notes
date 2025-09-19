@@ -215,3 +215,9 @@ $t_{hold\_slack}=t_{holdMax}-t_{hold}=t_{cq}+t_{logic}+t_{clk\_delay}-t_{hold}-t
 # 时序违例优化方法概述
 
 ![image-20250702172809880](FPGA静态时序分析.assets/image-20250702172809880.png)
+
+# 例题
+
+[数字电路-建立时间和保持时间详解-CSDN博客](https://blog.csdn.net/zangzangbupei/article/details/140407867)
+
+Q1：第一级时钟偏斜，相当于第二级的时钟有一个负偏斜
