@@ -14,6 +14,129 @@
 | 异步时钟 | asynchronous clock |
 | 时钟域   | clock domain       |
 
+# 时序约束分类(from Qwen)
+
+在数字集成电路（尤其是FPGA或ASIC）设计流程中，**时序收敛**（Timing Closure）是指设计满足所有时序约束要求的状态。为实现时序收敛，设计者需要施加一系列**时序约束**（Timing Constraints），这些约束用于指导综合、布局布线（P&R）等工具优化电路以满足性能目标。
+
+用于时序收敛的约束一般可分为以下几类：
+
+---
+
+### 1. **时钟约束（Clock Constraints）**
+这是最核心的一类约束，用于定义设计中的时钟信号特性。
+
+- **主时钟定义（Primary Clock）**  
+  ```tcl
+  create_clock -name clk -period 10 [get_ports clk_in]
+  ```
+  指定顶层输入端口或内部节点的时钟周期、占空比、相位等。
+
+- **生成时钟（Generated Clock）**  
+  ```tcl
+  create_generated_clock -name clk_div2 -source [get_pins clk_reg/Q] -divide_by 2 [get_pins clk_div_reg/Q]
+  ```
+  用于描述由主时钟通过分频、倍频（如PLL/DCM输出）或相移产生的衍生时钟。
+
+- **虚拟时钟（Virtual Clock）**  
+  用于建模与I/O相关的外部时钟（没有物理引脚连接），主要在输入/输出延迟约束中使用。
+
+---
+
+### 2. **输入/输出延迟约束（I/O Delay Constraints）**
+用于描述芯片与外部器件之间的接口时序。
+
+- **输入延迟（Input Delay）**  
+  ```tcl
+  set_input_delay -clock clk -max 2.0 [get_ports data_in]
+  ```
+  表示数据在时钟沿之后多长时间到达输入引脚（相对于时钟），用于建模外部建立时间要求。
+
+- **输出延迟（Output Delay）**  
+  ```tcl
+  set_output_delay -clock clk -max 1.5 [get_ports data_out]
+  ```
+  表示数据必须在时钟沿之前多久稳定在输出引脚上，用于满足外部器件的建立时间。
+
+> 通常结合 `-min`/`-max` 同时约束建立（setup）和保持（hold）时间。
+
+---
+
+### 3. **时序例外约束（Timing Exceptions）**
+用于处理非标准路径（如异步路径、多周期路径等），防止工具对这些路径做不必要的优化或报错。
+
+- **多周期路径（Multicycle Path）**  
+  ```tcl
+  set_multicycle_path 2 -setup -from [get_pins src_reg/Q] -to [get_pins dst_reg/D]
+  set_multicycle_path 1 -hold -from ... -to ...
+  ```
+  指定某条路径的数据允许在多个时钟周期后才被采样，常用于控制信号（如使能、复位）或低速数据通路。
+
+- **假路径（False Path）**  
+  ```tcl
+  set_false_path -from [get_pins async_reset] -to [all_registers]
+  ```
+  告诉工具忽略该路径的时序分析（如异步复位、测试模式信号、跨异步时钟域路径）。
+
+- **最大/最小延迟约束（Max/Min Delay）**  
+  ```tcl
+  set_max_delay 8 -from A -to B
+  set_min_delay 1 -from A -to B
+  ```
+  用于覆盖默认时钟驱动的时序分析，常用于跨时钟域（CDC）或自定义路径。
+
+---
+
+### 4. **时钟不确定性与时钟延迟（Clock Uncertainty & Latency）**
+用于建模时钟网络的理想与实际偏差。
+
+- **时钟不确定性（Clock Uncertainty）**  
+  ```tcl
+  set_clock_uncertainty 0.3 -setup [get_clocks clk]
+  ```
+  模拟时钟抖动（jitter）或PVT变化带来的时钟沿不确定性，用于收紧建立/保持时间裕量。
+
+- **时钟延迟（Clock Latency）**  
+  ```tcl
+  set_clock_latency 1.2 -source [get_clocks clk]   # 源延迟（预布局）
+  set_clock_latency 0.8 [get_clocks clk]           # 网络延迟（布局后可由工具计算）
+  ```
+  描述时钟从源到寄存器时钟引脚的延迟。
+
+> 在先进工艺中，这些通常由工具自动建模（如CTS后），但在早期或FPGA中可能需手动指定。
+
+---
+
+### 5. **时钟组（Clock Groups）**
+用于明确指定哪些时钟之间是异步的或物理互斥的。
+
+- **异步时钟组（Asynchronous Clock Groups）**  
+  ```tcl
+  set_clock_groups -asynchronous -group [get_clocks clk_a] -group [get_clocks clk_b]
+  ```
+  告诉工具这些时钟域之间无需进行跨时钟域时序分析（前提是设计者已通过同步器等手段处理CDC）。
+
+- **互斥时钟组（Exclusive Clock Groups）**  
+  用于多路复用时钟（如两个时钟不会同时有效），避免工具对不可能同时激活的路径做时序分析。
+
+---
+
+### 总结表
+
+| 约束类别          | 作用                             | 示例命令                |
+| ----------------- | -------------------------------- | ----------------------- |
+| 时钟约束          | 定义时钟特性                     | `create_clock`          |
+| I/O 延迟约束      | 约束芯片与外部接口时序           | `set_input_delay`       |
+| 时序例外          | 处理特殊路径（多周期、假路径等） | `set_multicycle_path`   |
+| 时钟不确定性/延迟 | 建模时钟抖动与网络延迟           | `set_clock_uncertainty` |
+| 时钟组            | 明确时钟间关系（异步/互斥）      | `set_clock_groups`      |
+
+---
+
+### 补充说明
+- **SDC**（Synopsys Design Constraints）是业界标准的时序约束格式，上述命令大多属于SDC语法。
+- 在FPGA设计中（如Xilinx Vivado 或 Intel Quartus），虽语法略有差异，但约束分类逻辑一致。
+- 错误或缺失的约束是时序收敛失败的常见原因，务必确保约束完整、准确、无冲突。
+
 # Constraining Clocks (时钟约束)
 
 当编译一个SDC文件(efinity的时钟约束文件)时，首要的任务时定义Verilog设计中的时钟和它们的关系。你应该设置约束来定义时钟和它们之间的关系。然后，你可以根据需要针对每个时钟限制其IO管脚。这章随后的小节解释了定义时钟及其关系背后的理论。
@@ -511,3 +634,343 @@ set_input_delay -clock clkin -min 2.526 din
 ---
 
 **Notes:** The *GPIO_CLK_IN* delay is accounted for in the *set_clock_latency* constraint. Therefore, you do not need to include it in the calculation for *set_input_delay*. Refer to ***Clock Latency***.
+
+### Output Receive Clock Delay
+
+This example shows how to set constraints for an output receive clock.
+
+![image-20251107092929670](efinity时序收敛指南.assets/image-20251107092929670.png)
+
+The SDC constraint formulas for the receive clock delay are:
+
+```sdc
+set_output_delay -clock <clock> -max <max calculation> <ports>
+set_output_delay -clock <clock> -min <min calculation> <ports>
+```
+
+The equations are:
+
+\<*max calculation*\> = \<*max board constraint*\> + $GPIO\_OUT_{max}$
+
+\<*min calculation*\> = \<*min board constraint*\> + $GPIO\_OUT_{min}$
+
+The following example shows how to calculate the delays and set the constraints.
+
+---
+
+**Example: Constraining Output Receive Clock**
+
+You want to constrain the *dout* output with respect to clock *clkin* with a max board constraint of 4ns and a min board constraint of 2ns. The non-registered GPIO configuration data from the Interface Design report file is:
+
+```sdc
+Non-registered GPIO Configuration: 
+===================================
++---------------+----------+-------------+----------+----------+ 
+| Instance Name | Pin Name | Parameter   | Max (ns) | Min (ns) | 
++---------------+----------+-------------+----------+----------+ 
+|     clkin     |  clkin   | GPIO_CLK_IN |  1.954   |  0.526   | 
+| 	   din      |   din    |   GPIO_IN   |  1.954   |  0.526   | 
+|      dout     |   dout   |   GPIO_OUT  |  4.246   |  1.081   | 
++---------------+----------+-------------+----------+----------+
+```
+
+The equations are:
+
+\<*max calculation*\> = 4 + 4.246 = 8.246
+
+\<*min calculation*\> = 2 + 1.081 = 3.081
+
+The resulting constraints are:
+
+```sdc
+set_output_delay -clock clkin -max 8.246 dout
+set_output_delay -clock clkin -min 3.081 dout
+```
+
+---
+
+---
+
+**Note:** The *GPIO_CLK_IN* delay is accounted for in the *set_clock_latency* constraint. Therefore, you do not need to include it in the calculation for *set_output_delay*. Refer to ***Clock Latency***.
+
+---
+
+### Input Forward Clock Delay (GPIO clkout)
+
+This example shows how to set constraints for an input forward clock.
+
+---
+
+**Warning:** Most designs do not need to use this method. For high-performance designs, you should use the GPIO registers and fllow the instructions in ***Constraining Synchronnous Inputs and Outouts***.
+
+![image-20251107101437516](efinity时序收敛指南.assets/image-20251107101437516.png)
+
+The SDC constraint formulas for the forward clock delay are:
+
+```sdc
+set_input_delay -clock <clock> -reference_pin <clkout interface name> \ -max <max calculation> <ports>
+set_input_delay -clock <clock> -reference_pin <clkout interface name> -min <min calculation> <ports>
+```
+
+#### Reference Pin
+
+With forward clocks, you use the *-reference_pin* option to include the clock latency delay in the I/O constraint. The *-reference_pin* pin target is a clkout pad that the software automatically adds to the netlist. The \<project\>**.pt_timing.rpt** file shows the reference pin name.
+
+Calculate the min and max constraints using the following equations:
+
+\< *max calculation* \> = \< *max board constraint* \> + $GPIO\_IN_{max}$ + $GPIO\_LCK\_OUT_{max}$
+
+\< *min calculation* \> = \< *min board constraint* \> + $GPIO\_IN_{min}$ + $GPIO\_LCK\_OUT_{min}$
+
+The following example shows how to calculate the delays and set the constraints.
+
+---
+
+**Example: Constraining Input Forward Clock**
+
+You want to constrain the *i* input with respect to clock *clk_fwd* with a max board constraint of 2ns and a min board constraint of 2ns. The non-registered GPIO configuration data from \<*project*\>**.pt_timing.rpt** file is:
+
+```sdc
+Clkout GPIO Configuration: 
+===========================  
++---------------+-----------+--------------+----------+----------+--------------------+ 
+| Instance Name | Clock Pin |   Parameter  | Max (ns) | Min (ns) | Reference Pin Name | 
++---------------+-----------+--------------+----------+----------+--------------------+ 
+|    clk_fwd    |    clk    | GPIO_CLK_OUT |   2.205  |  1.470   |  clk~CLKOUT~219~1  | 
++---------------+-----------+--------------+----------+----------+--------------------+  Non-registered HSIO GPIO Configuration: 
+========================================  
++---------------+----------+-------------+----------+----------+ 
+| Instance Name | Pin Name |  Parameter  | Max (ns) | Min (ns) | 
++---------------+----------+-------------+----------+----------+ 
+|      clk      |    clk   | GPIO_CLK_IN |   0.828  |   0.552  | 
+|       i       |     i    |   GPIO_IN   |   0.828  |   0.552  | 
+|       o       |     o    |   GPIO_OUT  |   2.205  |   1.470  | 
++---------------+----------+-------------+----------+----------+
+```
+
+The equations are:
+
+\<*max calculation*\> = 2 + 0.828 + 2.205 = 5.033
+
+\<*min calculation*\> = 2 + 0.552 + 1.470 = 4.022
+
+The resulting constraints are:
+
+```sdc
+set_input_delay -clock clk -reference_pin clk~CLKOUT~219~1 -max 5.033 [get_ports {i}] set_input_delay -clock clk -reference_pin clk~CLKOUT~219~1 -min 4.022 [get_ports {i}]
+```
+
+### Input Forward Clock Delay (GPIO output)
+
+### Output Forward Clock Delay (GPIO output)
+
+# Timing Exceptions
+
+Timing exceptions are constraints that override the default behavior between clocks. These constraints are:
+
+* `set_false_path` —— Cuts the path between the source and destination.
+* `set_max_delay`, `set_min_delay` —— Overrides the required time needed from the source to the destination for the specified paths.
+* `set_multicycle_path` —— Changes the clock edges used for the required timing calculation from the source to the destination.
+
+---
+
+**Tip: ** Refer to ***Example: Clock-to-Clock Path with Control*** for an example to use.
+
+When working with exceptions, if the same path has more than one exception, the constraints are prioritized in the following order:
+
+* `set_clock_groups`
+* `set_false_path`
+* `set_max_delay` and `set_min_delay`
+* `set_multicycle_path`
+
+## Example: Clock-to-Clock Path with Control
+
+The following figure shows a use case in which a specific clock-to-clock path in a design can have special control logic. The path from *FF1* to *FF2* can have a different timing exception compared to other clock-to-clock paths in the design. You define these timing exceptions with `set_false_path`, `set)max)delay`, `set_min_delay`, or `set_multicycle_path` SDC commands.
+
+![image-20251107170616745](efinity时序收敛指南.assets/image-20251107170616745.png)
+
+## Understanding False Paths
+
+You use the `set_false_path` constraint to tell the timing analyzer not to analyze (that is, to cut) a path. For example, a clock may only toggle some of the time, and you do not want software to try to optimize timing for it.
+
+You can cut paths between entire clock domains or individual points on the timing graph. If you want to completely cut the path between two clock domains, you should instead use the `set_clock_groups` constraint.
+
+## Understanding Min and Max Delays
+
+The `set_min_delay` and `set_max_delay` constraints override the timing requirements derived from your clock constraints. These settings tighten or relax the timing requirements for the paths. For example, you could use these constraints to try to minimize skew within a bus of signals.
+
+---
+
+**Important: Using `set_min_delay` and `set_max_delay` is very risky way to close timing because you can mask real setup and hold time violations unintentionally.** If you use `set_max_delay` or `set_min_delay` to override the default clock-to-clock constraint calculated by the software, the software honors your input and does not give any errors. However, the issue would likely appear on your board as a setup or hold violation. This method is especially riky when used with beneficial skew.
+
+#### Asynchronous Paths
+
+The `set_max_delay` and `set_min_delay` SDC commands support setting a combinational delay on an asynchronous between ports. This path does not associate with any clock. See the following Figure. Clock latency and clock uncertainty are not considered for asynchronous data paths.
+
+![image-20251107173028401](efinity时序收敛指南.assets/image-20251107173028401.png)
+
+The constraints that represent this example are:
+
+```sdc
+set_max_delay -from i to o <max delay>
+set_min_delay -from i to o <min delay>
+```
+
+#### Synchronous Paths
+
+If you specify a maximum delay or a minimum delay for synchronous ports, you must also specify the clock domains for both *-from* and *-to* ports. In the following example, the input and output ports of the core are connected to flipflops in the interface and special enable logic controls the clock relationship.
+
+![image-20251107173254273](efinity时序收敛指南.assets/image-20251107173254273.png)
+
+The constraints that represent this example are:
+
+```sdc
+create_clock -period <inclk period> -name inclk [get_ports inclk]
+create_clock -period <outclk period> -name outclk [get_ports outclk]
+set_input_delay -max <input max delay> -clock inclk -reference_pin <inclk_clk_out_pad>
+set_input_delay -min <input min delay> -clock inclk -reference_pin <inclk_clkout_pad> 
+set_output_delay -max <output max delay> -clock outclk -reference_pin <outclk_clkout_pad> 
+set_output_delay -min <output min delay> -clock outclk -reference_pin <outclk_clkout_pad>
+set_max_delay -from i to o <max delay>
+set_min_delay -from i to o <min delay>
+```
+
+Notice that the clock out pads are reference pins for the `set_input_delay` and  `set_output_delay` commands. The `set_max_delay` and `set_min_delay`  commands override the default clock-to-clock constraints calculated by the system. The clock path latency and clock uncertainty are considered for synchronous ports.
+
+#### Mixed Asynchronous and Synchronous Paths
+
+The Efinity software issues a warning and ignores the `set_max_delay` and `set_min_delay` SDC commands if one of the *-to/-from* ports is synchronous and the other is asynchronous. The following example only has a clock associated with the *-from* port:
+
+```sdc
+create_clock -name inclk -period 10.00 [get_ports inclk]
+set_input_delay -clock inclk 0.1 [get_ports i]
+set_max_delay 10 -from [get_ports i] to [get_ports o]
+```
+
+The software gives the following warning and ignores the `set_max_delay` command.
+
+```sdc
+Ignore the set_max_delay (<sdc_fele>:<line#>) constraint due to unconstrained port in -to
+```
+
+The following example only has a clock associated with the *to* port:
+
+```sdc
+create clock -name outlck -period 10.00 [get_ports outclk]
+set_output_delay -clock outclk 0.2 [get_ports o]
+set_max_delay 10 -from [get_ports i] -to [get__ports o]
+```
+
+The software gives the following warning and ignores the `set_max_delay` command.
+
+```sdc
+Ignore the set_max_delay (<sdc_file>:<line#>) constraint due to unconstrained port in -from
+```
+
+## Understanding Multicycle Constraints
+
+In a default single-cycle clock relationship, the two clocks are in phase and toggle together. The default setup and hold represent a one clock cycle *capture window* and is the same as setting a constraint of setup = 1 and hold = 0. The hold is checking one clock cycle before the capture clock edge. When you use the `set_multicycle_path` constraint, you are adjusting the capture window by shifting it, widening it, or both.
+
+If you do not use a multicycle constraint, the software assumes you want the default, single-cycle relationship.
+
+![image-20251108094521894](efinity时序收敛指南.assets/image-20251108094521894.png)
+
+The constraints that represent the default are:
+
+```sdc
+set_multicycle_path -setup -from a -to b 1
+set_multicycle_path -hold -frmo a -to b 0
+```
+
+### Shifted Capture Window
+
+To shift the capture window you use a constraint for the clock setup. The hold is still one clock cycle before the capture clock edge; the software assumes the hold is 0. Therefore, the window is still one clock cycle.
+
+![image-20251108094931768](efinity时序收敛指南.assets/image-20251108094931768.png)
+
+The constraints that represent this example are:
+
+```sdc
+set_multicycle_path -setup -from a -to b 2
+set_multicycle_path -hold -frmo a -t0 b 0
+```
+
+### Shifted and Widened Window
+
+To shift and widen the capture window you constrain the hold time as well as the setup time. A wider window allows multiple clock cycles to capture data. In the following example, the capture window is two clock cycles.
+
+![image-20251108100713855](efinity时序收敛指南.assets/image-20251108100713855.png)
+
+The constraints that represent this example are:
+
+```sdc
+set_multicycle_path -setup -from a -to b 2
+set_multicycle_path -hold -from a -to b 1
+```
+
+To shift the window by *n* cycles with a window *m* cycles wide, use the equations:
+
+* setup = n
+* hold = m - 1
+
+For example:
+
+* n = 4, m = 3
+* setup = 4
+* hold = 3 -1 = 2
+
+These values give you a window that is shifted by 4 clock cycles and id 3 clock cycles wide.
+
+```sdc
+set_multicycle_path -setup -from a -to b 4
+set_multicycle_path -hold -from a -to b 2
+```
+
+If *n* is equal to *m*, then the constraint would simply be:
+
+```sdc
+set_multicycle_path -setup -from a -to b n 
+set_multicycle_path -hold -from a -to b n-1
+```
+
+### Constraints between Fast and Slow Clocks
+
+When the launch and capture clocks have the same frequency and phase, it does not matter which clock waveform you use tu calculate the setup and hold; the result will be the same. However when the clock frequencies are different, you need to specify which clock waveform you want to use for the setup and hold calculation using the *-start* and *-end* modifiers. You cannot use both *-start* and *-end* at the same time.
+
+* *-start* uses the launch clock for the calculation.
+* *-end* uses the capture clock for the calculation.
+
+For setup, *-start* moves the launch edge backwards and *-end* moves the capture edge forward. The default is *-end*. For hold, *-start* moves the launch edge forward and *-end* moves the capture edge backward. The default is *-start*.
+
+---
+
+**Explanation:**
+
+这一小节关于多周期约束的使用方法和使用场景，efinity手册讲的不清楚。可参考如下blog:
+
+[Multicycle Path怎么设？看这篇就够了 - 极术社区 - 连接开发者与智能计算生态](https://aijishu.com/a/1060000000206169)
+
+---
+
+When the launch clock is faster than the capture clock, you need to ensure that the *set_multicycle_path* constraint is applied to the launch clock. For the setup constraint, you need to include *-start*. For hold, *-start* is the default so you do not need to include it.
+
+![image-20251108103254595](efinity时序收敛指南.assets/image-20251108103254595.png)
+
+The Constraints that represent this example are:
+
+```sdc
+set_multicycle_path -setup -start -from a -to b 2
+set_multicycle_path -hold -from a -to b 1
+```
+
+When the launch clock is slower than the capture clock, you need to ensure that `set_multicycle_path` constraint is applied to the capture clock. For the setup constraint, you need *-end*, which is the default, so you do not need to include it. For hold, include *-end*.
+
+![image-20251108105421356](efinity时序收敛指南.assets/image-20251108105421356.png)
+
+The constraints that represent this example are:
+
+```sdc
+set_multicycle_path -setup -from a -to b 2
+set_multicycle_path -hold -end -from a -to b 1
+```
+
